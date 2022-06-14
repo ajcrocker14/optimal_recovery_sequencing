@@ -190,12 +190,12 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
 
     start = time.time()
     if eval_seq:
-        args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " 8")
+        args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile)
     else:
         if relax:
-            args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile + " 8")
+            args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile)
         else:
-            args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile + " 8")
+            args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile)
 
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)

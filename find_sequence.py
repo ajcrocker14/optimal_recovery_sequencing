@@ -14,7 +14,7 @@ import numpy as np
 import cProfile
 import pstats
 import networkx as nx
-import caffeine
+# import caffeine
 import os.path
 from ctypes import *
 import time
