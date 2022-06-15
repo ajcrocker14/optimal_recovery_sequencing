@@ -189,13 +189,25 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
         # print('non_wu')
 
     start = time.time()
-    if eval_seq:
-        args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile)
-    else:
-        if relax:
-            args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile)
+    if type(net.tripfile) == list:
+        temp = ""
+        for item in net.tripfile:
+            temp = temp + " " + item
+        if eval_seq:
+            args = shlex.split(folder_loc + "1e-7 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp)
         else:
-            args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile)
+            if relax:
+                args = shlex.split(folder_loc + "1e-4 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp)
+            else:
+                args = shlex.split(folder_loc + "1e-6 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp)
+    else:
+        if eval_seq:
+            args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile)
+        else:
+            if relax:
+                args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile)
+            else:
+                args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile)
 
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)

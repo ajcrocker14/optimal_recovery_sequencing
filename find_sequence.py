@@ -1315,7 +1315,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                     open_list_b, open_list_f, num_purged, f_activated, b_activated, closed_list_f, closed_list_b = purge(
                     open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_list_f, closed_list_b, f_activated, b_activated, minimum_ff_n, minimum_bf_n, iter_count, beta=beta)
 
-    #check in case something weitd happened
+    #check in case something weird happened
     if len(bfs.path) != len(damaged_links):
         print('{} is not {}'.format('bestpath', 'full length'))
         pdb.set_trace()
@@ -1945,8 +1945,20 @@ if __name__ == '__main__':
     NETWORK = os.path.join(FOLDER, net_name)
     JSONFILE = os.path.join(NETWORK, net_name.lower() + '.geojson')
     NETFILE = os.path.join(NETWORK, net_name + "_net.tntp")
-    TRIPFILE = os.path.join(NETWORK, net_name + "_trips.tntp")
 
+    TRIPFILE = os.path.join(NETWORK, net_name + "_trips.tntp")
+    if not os.path.exists(TRIPFILE):
+        TRIPFILE = list()
+        i=1
+        while True:
+            if os.path.exists(os.path.join(NETWORK, net_name + "_trips" + str(i) + ".tntp")):
+                TRIPFILE.append(os.path.join(NETWORK, net_name + "_trips" + str(i) + ".tntp"))
+                i+=1
+            else:
+                if TRIPFILE == []:
+                    print('Improper tripfile naming.')
+                    raise utils.BadFileFormatException
+                break
 
 
     SAVED_FOLDER_NAME = "saved"

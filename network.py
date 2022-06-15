@@ -1019,7 +1019,10 @@ class Network:
         the input data (validate) and build necessary data structures (finalize).
         """
         self.readNetworkFile(networkFile)
-        self.readDemandFile(demandFile)
+        if type(demandFile) == list:
+            self.readMultDemandFile(demandFile)
+        else:
+            self.readDemandFile(demandFile)
         self.validate()
         self.finalize()
 
@@ -1161,6 +1164,75 @@ class Network:
                         ODID = str(origin) + '->' + str(destination)
                         self.ODpair[ODID] = OD(origin, destination, demand)
                         self.totalDemand += demand
+
+        except IOError:
+            print("\nError reading network file %s" % networkFile)
+            traceback.print_exc(file=sys.stdout)
+
+    def readMultDemandFile(self, demandFileName):
+        """
+        Reads demand (OD matrix) data from multiple files in the TNTP format.
+        """
+        try:
+            self.totalDemand = 0
+            for item in demandFileName:
+                with open(item, "r") as demandFile:
+                    fileLines = demandFile.read().splitlines()
+
+                    # Set default parameters for metadata, then read
+                    self.totalDemandCheck = None
+
+                    metadata = utils.readMetadata(fileLines)
+                    try:
+                        self.totalDemandCheck = float(metadata['TOTAL OD FLOW'])
+                        if self.numZones != None:
+                            if self.numZones != int(metadata['NUMBER OF ZONES']):
+                                print(
+                                    "Error: Number of zones does not match in network/demand files.")
+                                raise utils.BadFileFormatException
+                        else:
+                            self.numZones = int(metadata['NUMBER OF ZONES'])
+
+                    except KeyError:  # KeyError
+                        print(
+                            "Warning: Not all metadata present in demand file, error checking will be limited.")
+
+                    for line in fileLines[metadata['END OF METADATA']:]:
+                        # Ignore comments and blank lines
+                        line = line.strip()
+                        commentPos = line.find("~")
+                        if commentPos >= 0:  # strip comments
+                            line = line[:commentPos]
+                        if len(line) == 0:
+                            continue
+
+                        data = line.split()
+
+                        if data[0] == 'Origin':
+                            origin = int(data[1])
+                            continue
+
+                        # Two possibilities, either semicolons are directly after
+                        # values or there is an intervening space
+                        if len(data) % 3 != 0 and len(data) % 4 != 0:
+                            print("Demand data line not formatted properly:\n %s" % line)
+                            raise utils.BadFileFormatException
+
+                        for i in range(int(len(data) // 3)):
+                            destination = int(data[i * 3])
+                            check = data[i * 3 + 1]
+                            ODID = str(origin) + '->' + str(destination)
+                            demand = data[i * 3 + 2]
+                            demand = float(demand[:len(demand) - 1])
+                            if check != ':':
+                                print(
+                                    "Demand data line not formatted properly:\n %s" % line)
+                                raise utils.BadFileFormatException
+                            try:
+                                self.ODpair[ODID].demand += demand
+                            except KeyError:
+                                self.ODpair[ODID] = OD(origin, destination, demand)
+                                self.totalDemand += demand
 
         except IOError:
             print("\nError reading network file %s" % networkFile)
