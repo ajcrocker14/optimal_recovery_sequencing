@@ -218,7 +218,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     return tstt
 
 
-def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None):
+def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1):
     tap_solved = 0
     days_list = []
     tstt_list = []
@@ -243,9 +243,42 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
 
     to_visit = order_list
     added = []
-    for link_id in order_list:
+    if num_crews == 1:
+        crew_order_list = order_list
+    else:
+        crew_order_list = []
+        crews = [0]*num_crews
+        which_crew = dict()
+
+        temp = damaged_dict[order_list[0]]
+        crew_order_list.append(order_list[0])
+        for ij in order_list[1:num_crews]:
+            if damaged_dict[ij] < temp:
+                temp = damaged_dict[ij]
+                crew_order_list[0] = ij
+
+        crews[0]+=damaged_dict[crew_order_list[0]]
+        which_crew[crew_order_list[0]] = 0
+
+        for link in order_list:
+            if link not in crew_order_list:
+                which_crew[link] = crews.index(min(crews))
+                crews[which_crew[link]] += damaged_dict[link]
+                if crews[which_crew[link]] == max(crews):
+                    crew_order_list.append(link)
+                else:
+                    crew_order_list.insert(len(crew_order_list) - num_crews + sorted(crews).index(crews[which_crew[link]]) + 1 ,link)
+
+    crews = [0]*num_crews
+    total_days = 0
+    for link_id in crew_order_list:
         level += 1
-        days_list.append(damaged_dict[link_id])
+        if num_crews == 1:
+            days_list.append(damaged_dict[link_id])
+        else:
+            crews[which_crew[link_id]] += damaged_dict[link_id]
+            days_list.append(crews[which_crew[link_id]] - total_days)
+            total_days = max(crews)
         added.append(link_id)
         not_fixed = set(to_visit).difference(set(added))
         net.not_fixed = set(not_fixed)

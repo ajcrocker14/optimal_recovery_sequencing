@@ -39,8 +39,8 @@ To build an executable of TAP-B, in tap-b directory run 'make' in Ubuntu.
 
 ## Authors
 
-* **Can Gokalp** - *Primary Implementation* 
-* **Abigail Crocker** - *Updated Implementation*
+* **Can Gokalp** - *Primary implementation* 
+* **Abigail Crocker** - *Updated implementation for multi-class demand and multiple work crews*
 
 ## License
 

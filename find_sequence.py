@@ -54,6 +54,7 @@ parser.add_argument('-c', '--gamma', type=int,
                     help='hyperparameter to expand the search', default=128)
 parser.add_argument('-v', '--beta', type=int,
                     help='hyperparameter that decides the frequency of purge', default=128)
+parser.add_argument('-d', '--num_crews', type=int, help='number of work crews available', default=1)
 
 args = parser.parse_args()
 
@@ -1218,7 +1219,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                     del decoy_dd[link_to_add]
 
                 net = deepcopy(net_after)
-                bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+                bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 if bound < bfs.cost:
 
                     bfs.cost = bound
@@ -1294,7 +1295,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
 
                 path.extend(minimum_bf_n.path[::-1])
                 net = deepcopy(net_after)
-                bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+                bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
                 if bound < bfs.cost:
 
@@ -1627,7 +1628,7 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
 
         elapsed = time.time() - start + time_net_before
         bound, eval_taps, _ = eval_sequence(
-            if_net, path, after_eq_tstt, before_eq_tstt, if_dict, importance=True, damaged_dict=damaged_dict)
+            if_net, path, after_eq_tstt, before_eq_tstt, if_dict, importance=True, damaged_dict=damaged_dict, num_crews=num_crews)
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -1669,7 +1670,7 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
 
             seq_net = deepcopy(net_after)
             cost, eval_taps, _ = eval_sequence(
-                seq_net, sequence, after_eq_tstt, before_eq_tstt, is_approx=is_approx, damaged_dict=damaged_dict)
+                seq_net, sequence, after_eq_tstt, before_eq_tstt, is_approx=is_approx, damaged_dict=damaged_dict, num_crews=num_crews)
             tap_solved += eval_taps
             # seq_dict[sequence] = cost
 
@@ -1702,7 +1703,7 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
         # pdb.set_trace()
 
         elapsed = time.time() - start
-        bound, _, _ = eval_sequence(net, min_seq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+        bound, _, _ = eval_sequence(net, min_seq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
         save(fname + '_obj', bound)
         save(fname + '_path', min_seq)
         save(fname + '_elapsed', elapsed)
@@ -1771,7 +1772,7 @@ def lazy_greedy_heuristic():
     lzg_order = [i[0] for i in lzg_order]
     elapsed = time.time() - start
 
-    bound, eval_taps, _ = eval_sequence(net_b, lzg_order, a_eq_tstt, b_eq_tstt, damaged_dict=damaged_dict)
+    bound, eval_taps, _ = eval_sequence(net_b, lzg_order, a_eq_tstt, b_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
     tap_solved = len(damaged_dict)
 
     fname = save_dir + '/layzgreedy_solution'
@@ -1862,7 +1863,7 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
 
         elapsed = time.time() - start + time_net_before + time_net_after
 
-        bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+        bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -1933,6 +1934,7 @@ if __name__ == '__main__':
     beam_search = args.beamsearch
     beta = args.beta
     gamma = args.gamma
+    num_crews = args.num_crews
     graphing = args.graphing
     scenario_file = args.scenario
     before_after = args.onlybeforeafter
@@ -2429,7 +2431,7 @@ if __name__ == '__main__':
                             first_net = deepcopy(net_after)
                             first_net.relax = False
                             algo_obj, _, _ = eval_sequence(
-                                first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+                                first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
                             algo_num_tap += search_tap_solved + greedy_num_tap
                             algo_elapsed = search_elapsed + benefit_analysis_elapsed
@@ -2506,7 +2508,7 @@ if __name__ == '__main__':
                                 first_net = deepcopy(net_after)
                                 first_net.relax = False
                                 r_algo_obj, _, _ = eval_sequence(
-                                    first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+                                    first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
                                 r_algo_num_tap += r_search_tap_solved
                                 r_algo_elapsed = search_elapsed + benefit_analysis_elapsed
@@ -2795,7 +2797,7 @@ if __name__ == '__main__':
                         first_net = deepcopy(net_after)
                         first_net.relax = False
                         algo_obj, _, _ = eval_sequence(
-                            first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+                            first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
                         algo_num_tap += search_tap_solved + importance_num_tap
                         algo_elapsed = search_elapsed + benefit_analysis_elapsed
@@ -2843,7 +2845,7 @@ if __name__ == '__main__':
                         first_net = deepcopy(net_after)
                         first_net.relax = False
                         beamsearch_obj, _, _ = eval_sequence(
-                            first_net, beamsearch_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+                            first_net, beamsearch_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
 
                         beamsearch_num_tap += beamsearch_tap_solved + importance_num_tap
