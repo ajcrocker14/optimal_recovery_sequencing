@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import time
+import multiprocessing as mp
 
 class Network:
     def __init__(self, networkFile="", demandFile=""):
@@ -190,25 +191,26 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
         # print('non_wu')
 
     start = time.time()
+    cores = max(mp.cpu_count(),4)
     if type(net.tripfile) == list:
         temp = ""
         for item in net.tripfile:
-            temp = temp + " " + item
+            temp = temp + item + " "
         if eval_seq:
-            args = shlex.split(folder_loc + "1e-7 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp)
+            args = shlex.split(folder_loc + "1e-7 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
         else:
             if relax:
-                args = shlex.split(folder_loc + "1e-4 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp)
+                args = shlex.split(folder_loc + "1e-4 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
             else:
-                args = shlex.split(folder_loc + "1e-6 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp)
+                args = shlex.split(folder_loc + "1e-6 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
     else:
         if eval_seq:
-            args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile)
+            args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " " + str(cores))
         else:
             if relax:
-                args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile)
+                args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile + " " + str(cores))
             else:
-                args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile)
+                args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile + " " + str(cores))
 
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)

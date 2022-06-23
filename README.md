@@ -10,9 +10,9 @@ For testing and research, this project makes use of the Transportation Networks 
 
 ### Required dependencies
 
-Python3 with the following libraries: pickle, sys, traceback, os, os.path, copy, shlex, subprocess, shutil, pdb, pandas, matplotlib, json, random, operator, functools, itertools, prettytable, operator, miltiprocessing, graphing, scipy, math, argparse, numpy, cProfile, pstats, networkx, ctypes, time, correspondence, progressbar, network, geopy, sklearn, tensorflow.
+Python3 with the following libraries: pandas, prettytable, numpy, progressbar, geopy. In order to run 'approx' option you would need tensorflow (requires WSL 2 not WSL 1 to use with cuda).
 
-If on Windows OS, you will need WSL 1 and Ubuntu, or another method of operating in a Linux environment. If on Mac OS, you will also need a Linux environment to run the program as currently published.
+If on Windows OS, you will need WSL and Ubuntu, or another method of operating in a Linux environment. If on Mac OS, you will also need a Linux environment to run the program as currently published.
 
 C-compiler (we used gcc), installed through Ubuntu.
 
@@ -25,7 +25,7 @@ The below installation instructions will result in a working copy of the project
 In Ubuntu in your desired working directory, first, clone the required repos as such:
 
 ```
-git clone https://github.com/cangokalp/optimal_recovery_sequencing.git
+git clone https://github.com/ajcrocker14/optimal_recovery_sequencing.git
 
 cd optimal_recovery_sequencing
 
@@ -35,7 +35,12 @@ git clone https://github.com/bstabler/TransportationNetworks.git
 
 ```
 
-To build an executable of TAP-B, in tap-b directory run 'make' in Ubuntu.
+To build an executable of TAP-B, in tap-b directory run 'make parallel' in Ubuntu.
+
+Test script for optimal recovery sequencing after completing the above:
+```
+python3 find_sequence.py -n SiouxFalls -b 5 -l 1 -r 1
+```
 
 ## Authors
 

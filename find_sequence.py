@@ -31,7 +31,7 @@ parser.add_argument('-n', '--net_name', type=str, help='network name')
 parser.add_argument('-b', '--num_broken', type=int,
                     help='number of broken bridges')
 parser.add_argument('-a', '--approx', type=bool,
-                    help='approximation enabled for speed', default=False)
+                    help='approximation methods enabled - LAFO and LASR', default=False)
 parser.add_argument('-s', '--beamsearch', type=bool,
                     help='beam search enabled for speed', default=True)
 parser.add_argument('-r', '--reps', type=int,
@@ -888,43 +888,6 @@ def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_lis
                         open_list_f[i].append(a_node)
                         removed_from_closed.append(a_node)
 
-                # if iter_num <= 250:
-                #     for a_node in closed_list_f[i]:
-                #         if a_node.lb <= olf_min*1.1: #*1.1:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                #         elif a_node.ub <= olf_ub:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-
-                # elif iter_num <= 500:
-                #     for a_node in closed_list_f[i]:
-                #         if a_node.lb <= olf_min*1.1:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                #         elif a_node.ub <= olf_ub:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-
-                # elif iter_num <= 1000:
-                #     for a_node in closed_list_f[i]:
-                #         if a_node.lb <= olf_min * 1.025:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                #         elif a_node.ub*1.05 <= olf_ub:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-
-                # elif iter_num <= 1500:
-                #     for a_node in closed_list_f[i]:
-                #         if a_node.lb <= olf_min * 1.01:
-                #             open_list_f[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                # #         elif a_node.ub <= olf_ub:
-                # #             open_list_f[i].append(a_node)
-                # #             removed_from_closed.append(a_node)
-
-
                 for a_node in removed_from_closed:
                     closed_list_f[i].remove(a_node)
                 del removed_from_closed
@@ -981,40 +944,6 @@ def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_lis
                         elif a_node.ub <= olb_ub:
                             open_list_b[i].append(a_node)
                             removed_from_closed.append(a_node)
-
-                # if iter_num <= 250:
-                #     for a_node in closed_list_b[i]:
-                #         if a_node.lb <= olb_min * 1.1:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                #         elif a_node.ub <= olb_ub:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-
-                # elif iter_num <= 500:
-                #     for a_node in closed_list_b[i]:
-                #         if a_node.lb <= olb_min * 1.1:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                #         elif a_node.ub <= olb_ub:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                # elif iter_num <= 1000:
-                #     for a_node in closed_list_b[i]:
-                #         if a_node.lb <= olb_min * 1.025:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                #         elif a_node.ub*1.05 <= olb_ub:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                # elif iter_num <= 1500:
-                #     for a_node in closed_list_b[i]:
-                #         if a_node.lb <= olb_min*1.01:
-                #             open_list_b[i].append(a_node)
-                #             removed_from_closed.append(a_node)
-                # #         elif a_node.ub <= olb_ub:
-                # #             open_list_b[i].append(a_node)
-                # #             removed_from_closed.append(a_node)
 
                 for a_node in removed_from_closed:
                     closed_list_b[i].remove(a_node)
@@ -2505,6 +2434,8 @@ if __name__ == '__main__':
                     greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
                         net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after)
                     print('greedy_obj: ', greedy_obj)
+                    bfs.cost = greedy_obj
+                    bfs.path = greedy_soln
 
                     wb = deepcopy(wb_update)
                     bb = deepcopy(bb_update)
