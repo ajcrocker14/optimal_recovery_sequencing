@@ -5,6 +5,7 @@ import shlex
 import subprocess
 import shutil
 import pdb
+import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use('TkAgg')
@@ -154,7 +155,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     networkFileName = "current_net.tntp"
 
     if len(net.not_fixed) > 0:
-        df = pd.read_csv(networkFileName, 'r+', delimiter='\t')
+        df = pd.read_csv(networkFileName, delimiter='\t')
 
         for a_link in net.not_fixed:
             home = a_link[a_link.find("'(") + 2:a_link.find(",")]
@@ -218,7 +219,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     return tstt
 
 
-def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1):
+def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None):
     tap_solved = 0
     days_list = []
     tstt_list = []
@@ -287,8 +288,9 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             state = list(set(damaged_links).difference(net.not_fixed))
             state = [damaged_links.index(i) for i in state]
             pattern = np.zeros(len(damaged_links))
-            pattern[[state]] = 1
-            tstt_after = model.predict(pattern.reshape(1, -1)) * stdy + meany
+            pattern[(state)] = 1
+            tstt_after = approx_params[0].predict(pattern.reshape(1, -1), verbose=0) * approx_params[2] + approx_params[1]
+            tstt_after = tstt_after[0][0]
         else:
             tap_solved += 1
             tstt_after = solve_UE(net=net, eval_seq=True)

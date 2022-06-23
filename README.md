@@ -10,7 +10,7 @@ For testing and research, this project makes use of the Transportation Networks 
 
 ### Required dependencies
 
-Python3 with the following libraries: pickle, sys, traceback, os, os.path, copy, shlex, subprocess, shutil, pdb, pandas, matplotlib, json, random, operator, functools, itertools, prettytable, operator, miltiprocessing, graphing, scipy, math, argparse, numpy, cProfile, pstats, networkx, ctypes, time, correspondence, progressbar, network, geopy.
+Python3 with the following libraries: pickle, sys, traceback, os, os.path, copy, shlex, subprocess, shutil, pdb, pandas, matplotlib, json, random, operator, functools, itertools, prettytable, operator, miltiprocessing, graphing, scipy, math, argparse, numpy, cProfile, pstats, networkx, ctypes, time, correspondence, progressbar, network, geopy, sklearn, tensorflow.
 
 If on Windows OS, you will need WSL 1 and Ubuntu, or another method of operating in a Linux environment. If on Mac OS, you will also need a Linux environment to run the program as currently published.
 

@@ -55,6 +55,7 @@ parser.add_argument('-c', '--gamma', type=int,
 parser.add_argument('-v', '--beta', type=int,
                     help='hyperparameter that decides the frequency of purge', default=128)
 parser.add_argument('-d', '--num_crews', type=int, help='number of work crews available', default=1)
+parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
 
 args = parser.parse_args()
 
@@ -1492,42 +1493,71 @@ def preprocessing(damaged_links, net_after):
     samples = []
     X_train = []
     y_train = []
+    Z_train = [0]*len(damaged_links)
+    for i in range(len(damaged_links)):
+        Z_train[i] = []
 
+    preprocessing_num_tap = 0
     damaged_links = [i for i in damaged_links]
 
-    for k, v in memory.items():
-        pattern = np.ones(len(damaged_links))
-        state = [damaged_links.index(i) for i in k]
-        pattern[[state]] = 0
-        X_train.append(pattern)
-        y_train.append(v[1])
+    # for k, v in memory.items():
+    #     pattern = np.ones(len(damaged_links))
+    #     state = [damaged_links.index(i) for i in k]
+    #     pattern[(state)] = 0
+    #     X_train.append(pattern)
+    #     y_train.append(v)
 
     ns = 1
     card_P = len(damaged_links)
-    denom = 2 ^ card_P
+    denom = 2 ** card_P
 
     for i in range(card_P):
-        # nom = ns * ncr(card_P, i)
         nom = ns * comb(card_P, i)
-        num_to_sample = math.ceil(nom / denom) // 4
-        print(num_to_sample)
+        num_to_sample = math.ceil(nom / denom)
         for j in range(num_to_sample):
             pattern = np.zeros(len(damaged_links))
-            state = random.sample(damaged_links, i)
-            TSTT = eval_state(state, net_after, damaged_links)
+            temp_state = random.sample(damaged_links, i)
+            state = [damaged_links.index(i) for i in temp_state]
+            pattern[(state)] = 1
+            if any((pattern is test) or (pattern == test).all() for test in X_train):
+                pass
+            else:
+                TSTT = eval_state(temp_state, net_after, damaged_links)
+                preprocessing_num_tap +=1
+                X_train.append(pattern)
+                y_train.append(TSTT)
+            for el in range(len(pattern)):
+                if pattern[el] == 1:
+                    new_pattern = np.zeros(len(damaged_links))
+                    new_state = deepcopy(temp_state)
+                    new_state.remove(damaged_links[el])
+                    state = [damaged_links.index(i) for i in new_state]
+                    new_pattern[(state)] = 1
+                else:
+                    new_pattern = np.zeros(len(damaged_links))
+                    new_state = deepcopy(temp_state)
+                    new_state.append(damaged_links[el])
+                    state = [damaged_links.index(i) for i in new_state]
+                    new_pattern[(state)] = 1
+                if any((new_pattern is test) or (new_pattern == test).all() for test in X_train):
+                    pass
+                else:
+                    new_TSTT = eval_state(new_state, net_after, damaged_links)
+                    preprocessing_num_tap +=1
+                    X_train.append(new_pattern)
+                    y_train.append(TSTT)
+                    Z_train[el].append(abs(new_TSTT - TSTT))
 
-            state = [damaged_links.index(i) for i in state]
-            pattern[[state]] = 1
+    Z_bar = np.zeros(len(damaged_links))
+    for i in range(len(damaged_links)):
+        Z_bar[i] = np.mean(Z_train[i])
 
-            X_train.append(pattern)
-            y_train.append(TSTT)
-
-    from sklearn.preprocessing import PolynomialFeatures
-    from sklearn.linear_model import LinearRegression
-    from sklearn.linear_model import SGDRegressor
-    from sklearn.metrics import mean_squared_error
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.neural_network import MLPRegressor
+    # from sklearn.preprocessing import PolynomialFeatures
+    # from sklearn.linear_model import LinearRegression
+    # from sklearn.linear_model import SGDRegressor
+    # from sklearn.metrics import mean_squared_error
+    # from sklearn.ensemble import RandomForestRegressor
+    # from sklearn.neural_network import MLPRegressor
     from tensorflow import keras
     # poly_features = PolynomialFeatures(degree=2, include_bias=False)
     # X_train = poly_features.fit_transform(X_train)
@@ -1542,6 +1572,7 @@ def preprocessing(damaged_links, net_after):
 
     X_train_full = np.array(X_train)
     y_train_full = np.array(y_train)
+
 
     meany = np.mean(y_train_full)
     stdy = np.std(y_train_full)
@@ -1564,43 +1595,29 @@ def preprocessing(damaged_links, net_after):
         learning_rate=0.001))
     early_stopping_cb = keras.callbacks.EarlyStopping(patience=30)
     history = model.fit(X_train, y_train, validation_data=(
-        X_valid, y_valid), epochs=1000, callbacks=[early_stopping_cb])
+        X_valid, y_valid), epochs=1000, verbose=0, callbacks=[early_stopping_cb])
 
     ##Test##
     state = random.sample(damaged_links, 1)
     TSTT = eval_state(state, net_after, damaged_links)
     state = [damaged_links.index(i) for i in state]
     pattern = np.zeros(len(damaged_links))
-    pattern[[state]] = 1
+    pattern[(state)] = 1
     # pattern = poly_features.transform(pattern.reshape(1,-1))
     predicted_TSTT = model.predict(pattern.reshape(1, -1)) * stdy + meany
-    print('predicted tstt vs real tstt:', predicted_TSTT, TSTT)
+    print('predicted tstt vs real tstt, percent error:', predicted_TSTT[0][0], TSTT, (predicted_TSTT[0][0]-TSTT)/TSTT*100)
 
-    state = random.sample(damaged_links, 7)
+    state = random.sample(damaged_links, 4)
     TSTT = eval_state(state, net_after, damaged_links)
     state = [damaged_links.index(i) for i in state]
     pattern = np.zeros(len(damaged_links))
-    pattern[[state]] = 1
+    pattern[(state)] = 1
     predicted_TSTT = model.predict(pattern.reshape(1, -1)) * stdy + meany
-    print('predicted tstt vs real tstt:', predicted_TSTT, TSTT)
+    print('predicted tstt vs real tstt, percent error:', predicted_TSTT[0][0], TSTT, (predicted_TSTT[0][0]-TSTT)/TSTT*100)
 
-    state = random.sample(damaged_links, 11)
-    TSTT = eval_state(state, net_after, damaged_links)
-    state = [damaged_links.index(i) for i in state]
-    pattern = np.zeros(len(damaged_links))
-    pattern[[state]] = 1
-    predicted_TSTT = model.predict(pattern.reshape(1, -1)) * stdy + meany
-    print('predicted tstt vs real tstt:', predicted_TSTT, TSTT)
-
-    # state = random.sample(damaged_links, 18)
-    # TSTT = eval_state(state, net_after, damaged_links)
-    # state = [damaged_links.index(i) for i in state]
-    # pattern = np.zeros(len(damaged_links))
-    # pattern[[state]] = 1
-    # predicted_TSTT = model.predict(pattern.reshape(1, -1))*1e5
-    # print('predicted tstt vs real tstt:', predicted_TSTT, TSTT)
     # pdb.set_trace()
-    return model, meany, stdy
+    return model, meany, stdy, Z_bar, preprocessing_num_tap
+
 
 def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
     start = time.time()
@@ -1643,6 +1660,95 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
 
     return bound, path, elapsed, tap_solved
 
+def SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/SPT_bound'
+    if not os.path.exists(fname + extension):
+        SPT_net = deepcopy(net_before)
+        sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
+        path, _ = zip(*sorted_d)
+
+        elapsed = time.time() - start + time_net_before
+        bound, eval_taps, _ = eval_sequence(
+            SPT_net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
+def LAFO(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar):
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/LAFO_bound'
+    if not os.path.exists(fname + extension):
+        LAFO_net = deepcopy(net_before)
+
+        c = list(zip(Z_bar, damaged_links))
+        sorted_c = sorted(c,reverse=True)
+        _, path = zip(*sorted_c)
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, _ = eval_sequence(
+            LAFO_net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
+def LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar):
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/LASR_bound'
+    if not os.path.exists(fname + extension):
+        LASR_net = deepcopy(net_before)
+
+        order = np.zeros(len(damaged_links))
+        for i in range(len(damaged_links)):
+            order[i] = Z_bar[i]/list(damaged_dict.values())[i]
+
+        c = list(zip(order, damaged_links))
+        sorted_c = sorted(c,reverse=True)
+        _, path = zip(*sorted_c)
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, _ = eval_sequence(
+            LASR_net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
 def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
     start = time.time()
     tap_solved = 0
@@ -1651,7 +1757,9 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
     verbose = False
     if is_approx:
         approx_ext = '_approx'
-        verbose = True
+        # verbose = True
+
+    global approx_params
 
     fname = net_after.save_dir + '/min_seq' + approx_ext
 
@@ -1670,7 +1778,7 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
 
             seq_net = deepcopy(net_after)
             cost, eval_taps, _ = eval_sequence(
-                seq_net, sequence, after_eq_tstt, before_eq_tstt, is_approx=is_approx, damaged_dict=damaged_dict, num_crews=num_crews)
+                seq_net, sequence, after_eq_tstt, before_eq_tstt, is_approx=is_approx, damaged_dict=damaged_dict, num_crews=num_crews, approx_params=approx_params)
             tap_solved += eval_taps
             # seq_dict[sequence] = cost
 
@@ -1713,7 +1821,8 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
         min_seq = load(fname + '_path')
         tap_solved = load(fname + '_num_tap')
         elapsed = load(fname + '_elapsed')
-    print('brute_force solution: ', min_seq)
+    if not is_approx:
+        print('brute_force solution: ', min_seq)
     return min_cost, min_seq, elapsed, tap_solved
 
 def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
@@ -1890,14 +1999,6 @@ def get_wb(damaged_links, save_dir, approx, relax=False, bsearch=False, ext_name
     bb, bb_time = best_benefit(net_after, damaged_links, after_eq_tstt, relax=relax,  bsearch=bsearch, ext_name=ext_name)
     wb, bb, swapped_links = safety(wb, bb)
 
-    # approx solution
-    if approx:
-        model, meany, stdy = preprocessing(damaged_links, net_after)
-        approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
-            net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
-
-        print('approx obj: {}, approx path: {}'.format(
-            approx_obj, approx_soln))
 
     start_node = Node(tstt_after=after_eq_tstt)
     start_node.before_eq_tstt = before_eq_tstt
@@ -1942,7 +2043,7 @@ if __name__ == '__main__':
     full = args.full
     rand_gen = args.random
     location_based = args.loc
-    opt = False
+    opt = args.opt
 
     NETWORK = os.path.join(FOLDER, net_name)
     JSONFILE = os.path.join(NETWORK, net_name.lower() + '.geojson')
@@ -2053,7 +2154,7 @@ if __name__ == '__main__':
                     import geopy.distance
 
                     if NETWORK.find('SiouxFalls') >= 0:
-                        nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), 'r+', delimiter='\t')
+                        nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), delimiter='\t')
                         coord_dict = {}
 
                         for index, row in nodetntp.iterrows():
@@ -2069,7 +2170,7 @@ if __name__ == '__main__':
                             coord_dict[row['features']['properties']['id']] = row['features']['geometry']['coordinates']
 
                     if NETWORK.find('Chicago-Sketch') >= 0:
-                        nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), 'r+', delimiter='\t')
+                        nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), delimiter='\t')
                         coord_dict = {}
 
                         for index, row in nodetntp.iterrows():
@@ -2320,8 +2421,8 @@ if __name__ == '__main__':
 
 
                 print(f'experiment number: {rep}')
-                if len(damaged_links) >= 6:
-                    opt=False
+                # if len(damaged_links) >= 6:
+                #     opt=False
 
                 SCENARIO_DIR = NETWORK_DIR
                 ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
@@ -2363,22 +2464,39 @@ if __name__ == '__main__':
                     benefit_analysis_elapsed = time.time() - benefit_analysis_st
 
 
-                    # approx solution
+                    ### approx solution methods ###
                     if approx:
-                        model, meany, stdy = preprocessing(damaged_links, net_after)
-                        approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
-                            net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
+                        global approx_params
 
-                        print('approx obj: {}, approx path: {}'.format(
-                            approx_obj, approx_soln))
+                        preprocess_st = time.time()
+                        model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
+                        approx_params = (model, meany, stdy)
+                        preprocess_elapsed = time.time() - preprocess_st
+                        time_before = preprocess_elapsed + time_net_before
+
+                        ### Largest Averge First Order ###
+                        LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                        LAFO_num_tap += preprocessing_num_tap
+                        print('LAFO_obj: ', LAFO_obj)
+
+                        ### Largest Averge Smith Ratio ###
+                        LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                        LASR_num_tap += preprocessing_num_tap
+                        print('LASR_obj: ', LASR_obj)
+
+                        # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
+                        # approx_num_tap += preprocessing_num_tap
+                        # print('approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
+
+                    ### Shortest processing time solution ###
+                    SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before)
+                    print('SPT_obj: ', SPT_obj)
 
                     ### Lazy greedy solution ###
                     lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
                         #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time)
                     print('lazy_greedy_obj: ', lg_obj)
                     bfs = BestSoln()
-
-
 
                     wb_update = deepcopy(wb)
                     bb_update = deepcopy(bb)
@@ -2600,17 +2718,19 @@ if __name__ == '__main__':
                     if opt:
                         t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
                     if approx:
-                        t.add_row(['APPROX', approx_obj, r_algo_elapsed, r_algo_num_tap])
+                        t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
                     if beam_search:
                         t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
                     # if len(damaged_links) < 32:
                     #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
                     # if full:
                     #     t.add_row(['ALGORITHM', algo_obj, algo_elapsed, algo_num_tap])
-                    t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
+                    t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     t.add_row(['IMPORTANCE', importance_obj,
                                importance_elapsed, importance_num_tap])
+                    t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
                     print(t)
 
                     print(swapped_links)
@@ -2631,6 +2751,8 @@ if __name__ == '__main__':
                     print('greedy: ', greedy_soln)
                     print('---------------------------')
                     print('importance factors: ', importance_soln)
+                    print('---------------------------')
+                    print('shortest processing time: ', SPT_soln)
 
         else:
             damaged_dict_ = get_broken_links(JSONFILE, scenario_file)
@@ -2757,7 +2879,9 @@ if __name__ == '__main__':
                     print('approx obj: {}, approx path: {}'.format(
                         approx_obj, approx_soln))
 
-
+                ### Shortest processing time solution ###
+                SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before)
+                print('SPT_obj: ', SPT_obj)
 
                 ### Get greedy solution ###
                 greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
@@ -2879,6 +3003,7 @@ if __name__ == '__main__':
                 t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                 t.add_row(['IMPORTANCE', importance_obj,
                            importance_elapsed, importance_num_tap])
+                t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
                 print(t)
 
                 print('PATHS')
@@ -2891,4 +3016,5 @@ if __name__ == '__main__':
                 print('greedy: ', greedy_soln)
                 print('---------------------------')
                 print('importance factors: ', importance_soln)
-
+                print('---------------------------')
+                print('shortest processing time', SPT_soln)
