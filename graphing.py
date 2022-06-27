@@ -144,7 +144,7 @@ def get_common_numbers():
 
     netdirs = []
     FOLDER = 'TransportationNetworks'
-    for net_name in ['SiouxFalls', 'Chicago-Sketch']:
+    for net_name in ['SiouxFalls', 'ChicagoSketch']:
         NETWORK = os.path.join(FOLDER, net_name)
         JSONFILE = os.path.join(NETWORK, net_name.lower() + '.geojson')
         NETFILE = os.path.join(NETWORK, net_name + "_net.tntp")
@@ -163,7 +163,7 @@ def get_common_numbers():
     reps=4
     for netdir in netdirs:
 
-        brokens = ['8','16']
+        brokens = ['8', '16']
         for broken in brokens:
             figure_grid = 220
             i += 1
@@ -172,7 +172,7 @@ def get_common_numbers():
 
             bs_param_2 = str(int(int(broken) / 2.0))
 
-            filenames = ['beamsearch_solution_k' + bs_param_2]
+            filenames = ['r_algo_solution_k2']
 
             heuristic32 = {}
 
@@ -392,7 +392,7 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
 
 
     print(obj_means, obj_stds, tap_means, tap_stds, elapsed_means, elapsed_stds)
-    pdb.set_trace()
+    # pdb.set_trace()
 
     obj_means_scaled = obj_means / max(obj_means)
     
@@ -712,7 +712,7 @@ def get_tables(directory):
     SCENARIO_DIR = directory
 
     try:
-        brokens = get_folders(SCENARIO_DIR)
+        brokens = ['16']
     except:
         return
     ks = [2]

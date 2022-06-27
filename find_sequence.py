@@ -7,6 +7,8 @@ from prettytable import PrettyTable
 import operator
 import multiprocessing as mp
 from graphing import *
+import matplotlib.pyplot as plt
+from matplotlib import collections as mc
 from scipy.special import comb
 import math
 import argparse
@@ -32,8 +34,6 @@ parser.add_argument('-b', '--num_broken', type=int,
                     help='number of broken bridges')
 parser.add_argument('-a', '--approx', type=bool,
                     help='approximation methods enabled - LAFO and LASR', default=False)
-parser.add_argument('-s', '--beamsearch', type=bool,
-                    help='beam search enabled for speed', default=True)
 parser.add_argument('-r', '--reps', type=int,
                     help='number of scenarios with the given parameters', default=5)
 parser.add_argument('-g', '--graphing', type=bool, 
@@ -48,8 +48,9 @@ parser.add_argument('-y', '--onlybeforeafter', type=bool,
                     help='to get before and after tstt', default=False)
 parser.add_argument('-f', '--full', type=bool,
                     help='to use full algo not beam search', default=False)
-parser.add_argument('-j', '--random', type=bool,
-                    help='generate scenarios randomly', default=True)
+parser.add_argument('-s', '--beamsearch', help='use beam search for speed, in order to disable, enter -s without arguments', action='store_false')
+parser.add_argument('-j', '--random',
+                    help='generate scenarios randomly, in order to disable, enter -j without arguments', action='store_false')
 parser.add_argument('-c', '--gamma', type=int,
                     help='hyperparameter to expand the search', default=128)
 parser.add_argument('-v', '--beta', type=int,
@@ -389,7 +390,8 @@ def get_minlb(node, fwd_node, bwd_node, orderedb_benefits, orderedw_benefits, or
     if node.lb > node.ub:
 
         if node.relax == False:
-            pdb.set_trace()
+            pass
+            # pdb.set_trace()
 
         if abs(node.lb - node.ub) < 5:
             tempub = node.ub
@@ -397,8 +399,8 @@ def get_minlb(node, fwd_node, bwd_node, orderedb_benefits, orderedw_benefits, or
             node.lb = tempub
 
         else:
-            print('problem')
-            pdb.set_trace()
+            pass
+            # pdb.set_trace()
 
     return uncommon_number, common_number
 
@@ -530,7 +532,8 @@ def set_bounds_bib(node, open_list_f, start_node, front_to_end=True, bfs=None, u
 
 
     if node.lb > node.ub:
-        pdb.set_trace()
+        pass
+        # pdb.set_trace()
     return uncommon_number, common_number
 
 
@@ -813,7 +816,8 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
             continue
 
         if child.lb > child.ub:
-            pdb.set_trace()
+            pass
+            # pdb.set_trace()
 
         child.g = child.realized
         child.f = child.lb
@@ -953,7 +957,7 @@ def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_lis
     return open_list_b, open_list_f, num_purged,  f_activated, b_activated, {}, {}
     # return open_list_b, open_list_f, num_purged,  f_activated, b_activated, closed_list_f, closed_list_b
 
-def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=True, beta=50, gamma=50):
+def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=True, beta=128, gamma=128):
     """Returns the best order to visit the set of nodes"""
 
     # ideas in Holte: (search that meets in the middle)
@@ -1046,7 +1050,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
         minbind = np.argmin(bvals)
         minimum_bf_n = all_open_b[minbind]
 
-        #every 50 iter, update bounds
+        #every 64 iter, update bounds
         if iter_count<512:
             up_freq = 64
         else:
@@ -1080,8 +1084,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                                           common_number=common_number)
                     a_node.f = a_node.lb
 
-        # #every 100 iters get feasible solution
-        # if iter_count % 50==0 and iter_count !=0:
+        # #every gamma iters get feasible solution
         if iter_count % gamma==0 and iter_count!=0:
 
             if get_feas:
@@ -1235,7 +1238,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
 
             seq_length = len(damaged_links)
             threshold_start = seq_length + int(seq_length**2/int(math.log(seq_length,2)))
-            
+
             if len_f >= threshold_start:
                 f_activated = True
             if len_b >= threshold_start:
@@ -1429,12 +1432,12 @@ def preprocessing(damaged_links, net_after):
     preprocessing_num_tap = 0
     damaged_links = [i for i in damaged_links]
 
-    # for k, v in memory.items():
-    #     pattern = np.ones(len(damaged_links))
-    #     state = [damaged_links.index(i) for i in k]
-    #     pattern[(state)] = 0
-    #     X_train.append(pattern)
-    #     y_train.append(v)
+    for k, v in memory.items():
+        pattern = np.ones(len(damaged_links))
+        state = [damaged_links.index(i) for i in k]
+        pattern[(state)] = 0
+        X_train.append(pattern)
+        y_train.append(v)
 
     ns = 1
     card_P = len(damaged_links)
@@ -1455,27 +1458,27 @@ def preprocessing(damaged_links, net_after):
                 preprocessing_num_tap +=1
                 X_train.append(pattern)
                 y_train.append(TSTT)
-            for el in range(len(pattern)):
-                if pattern[el] == 1:
-                    new_pattern = np.zeros(len(damaged_links))
-                    new_state = deepcopy(temp_state)
-                    new_state.remove(damaged_links[el])
-                    state = [damaged_links.index(i) for i in new_state]
-                    new_pattern[(state)] = 1
-                else:
-                    new_pattern = np.zeros(len(damaged_links))
-                    new_state = deepcopy(temp_state)
-                    new_state.append(damaged_links[el])
-                    state = [damaged_links.index(i) for i in new_state]
-                    new_pattern[(state)] = 1
-                if any((new_pattern is test) or (new_pattern == test).all() for test in X_train):
-                    pass
-                else:
-                    new_TSTT = eval_state(new_state, net_after, damaged_links)
-                    preprocessing_num_tap +=1
-                    X_train.append(new_pattern)
-                    y_train.append(TSTT)
-                    Z_train[el].append(abs(new_TSTT - TSTT))
+                for el in range(len(pattern)):
+                    if pattern[el] == 1:
+                        new_pattern = np.zeros(len(damaged_links))
+                        new_state = deepcopy(temp_state)
+                        new_state.remove(damaged_links[el])
+                        state = [damaged_links.index(i) for i in new_state]
+                        new_pattern[(state)] = 1
+                    else:
+                        new_pattern = np.zeros(len(damaged_links))
+                        new_state = deepcopy(temp_state)
+                        new_state.append(damaged_links[el])
+                        state = [damaged_links.index(i) for i in new_state]
+                        new_pattern[(state)] = 1
+                    if any((new_pattern is test) or (new_pattern == test).all() for test in X_train):
+                        pass
+                    else:
+                        new_TSTT = eval_state(new_state, net_after, damaged_links)
+                        preprocessing_num_tap +=1
+                        X_train.append(new_pattern)
+                        y_train.append(new_TSTT)
+                        Z_train[el].append(abs(new_TSTT - TSTT))
 
     Z_bar = np.zeros(len(damaged_links))
     for i in range(len(damaged_links)):
@@ -1523,6 +1526,10 @@ def preprocessing(damaged_links, net_after):
     model.compile(loss='mean_absolute_error', optimizer=keras.optimizers.Adam(
         learning_rate=0.001))
     early_stopping_cb = keras.callbacks.EarlyStopping(patience=30)
+
+
+
+
     history = model.fit(X_train, y_train, validation_data=(
         X_valid, y_valid), epochs=1000, verbose=0, callbacks=[early_stopping_cb])
 
@@ -1868,9 +1875,7 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
                 if bb_update[link] < diff:
                     bb_update[link] = diff
 
-                # remaining = diff * \
-                #     (tot_days - damaged_dict[link])
-
+                # remaining = diff * \ (tot_days - damaged_dict[link])
                 # improvements.append(remaining)
                 new_tstts.append(after_fix_tstt)
 
@@ -1884,7 +1889,6 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
                 orderedb_benefits.append(new_bb[key])
 
             llll, lll, ord = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
-
 
 
             # min_index = np.argmax(improvements)
@@ -1915,7 +1919,7 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
 
     return bound, path, elapsed, tap_solved
 
-def get_wb(damaged_links, save_dir, approx, relax=False, bsearch=False, ext_name=''):
+def get_wb(damaged_links, save_dir, relax=False, bsearch=False, ext_name=''):
     net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir, real=True, relax=relax, bsearch=bsearch, ext_name=ext_name)
     net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir, real=True, relax=relax,  bsearch=bsearch, ext_name=ext_name)
 
@@ -1944,9 +1948,9 @@ def get_wb(damaged_links, save_dir, approx, relax=False, bsearch=False, ext_name
     end_node.before_eq_tstt = before_eq_tstt
     end_node.after_eq_tstt = after_eq_tstt
     end_node.level = 0
-    
+
     end_node.visited, end_node.not_visited = set([]), set(damaged_links)
-    
+
     end_node.fixed, end_node.not_fixed = set(
         damaged_links), set([])
 
@@ -1955,9 +1959,64 @@ def get_wb(damaged_links, save_dir, approx, relax=False, bsearch=False, ext_name
 
     return wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links
 
+def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
+    xMax = max(coord_dict.values())[0]
+    xMin = min(coord_dict.values())[0]
+    yMax = coord_dict[1][1]
+    yMin = coord_dict[1][1]
+
+    for i in coord_dict:
+        if coord_dict[i][1] < yMin:
+            yMin = coord_dict[i][1]
+        if coord_dict[i][1] > yMax:
+            yMax = coord_dict[i][1]
+
+    scale = 10**(math.floor(min(math.log(xMax-xMin,10),math.log(yMax-yMin,10)))-1)
+
+    fig, ax = plt.subplots(figsize = (12,9))
+    plt.xlim(math.floor(xMin/scale)*scale,math.ceil(xMax/scale)*scale)
+    plt.ylim(math.floor(yMin/scale)*scale,math.ceil(yMax/scale+1)*scale)
+    plt.rcParams["font.size"] = 6
+
+    # plot nodes
+    nodesx = list()
+    nodesy = list()
+    for i in range(1,len(coord_dict)+1):
+        nodesx.append(coord_dict[i][0])
+        nodesy.append(coord_dict[i][1])
+    if names == True:
+        if NETWORK.find('ChicagoSketch') >= 0:
+            for i in range(388,len(nodesx)):
+                plt.annotate(i+1,(nodesx[i],nodesy[i]))
+        else:
+            for i in range(len(nodesx)):
+                plt.annotate(i+1,(nodesx[i],nodesy[i]))
+    plt.scatter(nodesx,nodesy, s=4)
+
+    # plot links
+    segments = list()
+    damaged_segments = list()
+    #for ij in [ij for ij in Network.link if Network.link[ij].flow > 0]:
+    for ij in [ij for ij in net.link if ij not in damaged_links]:
+        line = [coord_dict[net.link[ij].tail], coord_dict[net.link[ij].head]]
+        segments.append(line)
+    for ij in damaged_links:
+        line = [coord_dict[net.link[ij].tail], coord_dict[net.link[ij].head]]
+        damaged_segments.append(line)
+    lc = mc.LineCollection(segments)
+    lc_damaged = mc.LineCollection(damaged_segments, color = 'tab:red')
+    ax.add_collection(lc)
+    ax.add_collection(lc_damaged)
+    ax.set_axis_off()
+    plt.title('Map of ' + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links)) + ' damaged links', fontsize=12)
+
+    save_fig(save_dir, 'map', tight_layout=True)
+
 if __name__ == '__main__':
 
     net_name = args.net_name
+    if net_name == 'Chicago-Sketch':
+        net_name = 'ChicagoSketch'
     num_broken = args.num_broken
     approx = args.approx
     reps = args.reps
@@ -2003,7 +2062,7 @@ if __name__ == '__main__':
 
 
     if graphing:
-        # get_common_numbers()
+        get_common_numbers()
         get_tables(NETWORK_DIR)
     else:
         if rand_gen:
@@ -2040,15 +2099,14 @@ if __name__ == '__main__':
                                     cost = float(line.strip())
 
 
-                                    if cost != 9999.0:
+                                    if cost != 99999.0:
                                         netflows[ij] = {}
                                         netflows[ij] = flow
                                 except:
                                     break
                         os.remove('flows.txt')
 
-                import operator
-                sorted_d = sorted(netflows.items(), key=operator.itemgetter(1))[::-1]
+                sorted_d = sorted(netflows.items(), key=op.itemgetter(1))[::-1]
 
                 cutind = len(netflows)*0.7
                 try:
@@ -2072,13 +2130,11 @@ if __name__ == '__main__':
                 G.add_edges_from(edge_list)
 
                 damaged_links = []
+                art_links = []
                 decoy = deepcopy(all_links)
                 i = 0
 
                 dG = deepcopy(G)
-                prev_dG = deepcopy(G)
-                del G
-                import math
                 if location_based:
                     import geopy.distance
 
@@ -2098,7 +2154,7 @@ if __name__ == '__main__':
                         for index, row in nodetntp.iterrows():
                             coord_dict[row['features']['properties']['id']] = row['features']['geometry']['coordinates']
 
-                    if NETWORK.find('Chicago-Sketch') >= 0:
+                    if NETWORK.find('ChicagoSketch') >= 0:
                         nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), delimiter='\t')
                         coord_dict = {}
 
@@ -2109,6 +2165,9 @@ if __name__ == '__main__':
 
                     #pick a center node at random:
                     nodedecoy = deepcopy(list(netg.node.keys()))
+                    nodedecoy = sorted(nodedecoy)
+                    if NETWORK.find('ChicagoSketch') >= 0:
+                        nodedecoy = nodedecoy[387:]
                     center_node = np.random.choice(nodedecoy, 1, replace=False)[0]
 
                     nodedecoy.remove(center_node)
@@ -2116,14 +2175,10 @@ if __name__ == '__main__':
                     dist_dict = {}
 
                     for anode in nodedecoy:
-                        # if NETWORK.find('SiouxFalls') >= 0:
                         distance = np.linalg.norm(np.array(coord_dict[center_node]) - np.array(coord_dict[anode]))
-                        # else:
-                        #     distance = geopy.distance.distance(coord_dict[center_node], coord_dict[anode]).km
-
                         dist_dict[anode] = distance
 
-                    #sort dist_dict with distances
+                    #sort dist_dict by distances
                     sorted_dist = sorted(dist_dict.items(), key=operator.itemgetter(1))
                     all_nodes = [nodes[0] for nodes in sorted_dist]
                     distances = [nodes[1] for nodes in sorted_dist]
@@ -2134,30 +2189,15 @@ if __name__ == '__main__':
                     decoy = deepcopy(all_nodes)
 
                     i = 0
-
-
-                    # while i <= int(math.ceil(num_broken)):
-
-                        # another_node = random.choices(decoy, np.exp(np.cbrt(1.0/np.array(distances))), k=1)[0]
-
-                        # weights = 1.0/np.array(distances) 
-                        # weights = (weights - min(weights)) / (max(weights) - min(weights))
-                        # weights = weights**3
-
-                    # weights = 1.0/np.array(distances) 
-                    # weights = weights/weights[0]
-                    # weights = weights**3.5
-                    # weights = list(weights)
                     while i <= int(math.floor(num_broken*2/3.0)) and len(distances)>0:
+                        another_node = random.choices(decoy, 1.0/np.array(distances)**3, k=1)[0]
 
-                        # weights = 1.0/np.array(distances) 
+                        # weights = 1.0/np.array(distances)
                         # weights = weights/weights[0]
                         # weights = weights**3.5
-                        another_node = random.choices(decoy, np.exp(np.cbrt(1.0/np.array(distances))), k=1)[0]
-                        
                         # weights = list(weights)
                         # another_node = random.choices(decoy, weights, k=1)[0]
-
+                        # another_node = random.choices(decoy, np.exp(np.cbrt(1.0/np.array(distances))), k=1)[0]
 
                         idx = decoy.index(another_node)
                         del distances[idx]
@@ -2165,7 +2205,6 @@ if __name__ == '__main__':
                         # del weights[idx]
                         selected_nodes.append(another_node)
                         i += 1
-                    
 
                     selected_indices = [all_nodes.index(ind) for ind in selected_nodes[1:]]
                     print(selected_nodes)
@@ -2178,14 +2217,21 @@ if __name__ == '__main__':
                         links_rev = netg.node[anode].reverseStar
                         links_fw = netg.node[anode].forwardStar
 
-                        
                         for alink in links_rev:
                             if alink not in linkset:
-                                linkset.append(alink)
-                        
+                                if NETWORK.find('ChicagoSketch') >= 0:
+                                    if netg.link[alink].tail > 387:
+                                        linkset.append(alink)
+                                else:
+                                    linkset.append(alink)
+
                         for alink in links_fw:
                             if alink not in linkset:
-                                linkset.append(alink)
+                                if NETWORK.find('ChicagoSketch') >= 0:
+                                    if netg.link[alink].head > 387:
+                                        linkset.append(alink)
+                                else:
+                                    linkset.append(alink)
 
                     cop_linkset = deepcopy(linkset)
                     i = 0
@@ -2196,44 +2242,35 @@ if __name__ == '__main__':
                     safe = deepcopy(flow_on_links)
                     fail = False
                     iterno = 0
-                    dG_orig = deepcopy(dG)
                     while i < int(num_broken):
-                        # print(i, iterno)
                         curlen = len(linkset)
                         fol = np.array(flow_on_links)
                         fol = fol/np.max(fol)
 
                         # ij = random.choice(linkset)
-
-
                         if not fail:
                             ij = random.choices(linkset, weights=np.exp(np.power(flow_on_links, 1 / 3.0)), k=1)[0]
-                        #     # ij = random.choices(linkset, weights=fol, k=1)[0]
+                            # ij = random.choices(linkset, weights=fol, k=1)[0]
 
                         else:
                             ij = random.choices(linkset, weights=np.exp(np.power(flow_on_links, 1 / 4.0)), k=1)[0]
-                        #     # ij = random.choices(linkset, weights=fol, k=1)[0]
+                            # ij = random.choices(linkset, weights=fol, k=1)[0]
 
 
                         u = netg.link[ij].tail
                         v = netg.link[ij].head
                         dG.remove_edge(u, v)
 
-                        all_reachable = True
-                        j = 0
                         for od in netg.ODpair.values():
                             if not nx.has_path(dG, od.origin, od.destination):
-                                all_reachable = False
-                                dG = deepcopy(prev_dG)
+                                art_links.append(ij)
                                 break
 
-                        if all_reachable:
-                            i += 1
-                            damaged_links.append(ij)
-                            prev_dG = deepcopy(dG)
-                            ind_ij = linkset.index(ij)
-                            del flow_on_links[ind_ij]
-                            linkset.remove(ij)
+                        i += 1
+                        damaged_links.append(ij)
+                        ind_ij = linkset.index(ij)
+                        del flow_on_links[ind_ij]
+                        linkset.remove(ij)
 
                         if iterno % 100 == 0:
                             print(iterno, damaged_links)
@@ -2245,8 +2282,7 @@ if __name__ == '__main__':
                             i = 0
                             fail = True
                             iterno = 0
-                            dG = deepcopy(dG_orig)
-                            prev_dG = deepcopy(dG_orig)
+                            dG = deepcopy(G)
                         iterno +=1
 
                         if iterno > 5000:
@@ -2259,33 +2295,37 @@ if __name__ == '__main__':
                     while i < int(num_broken):
                         curlen = len(decoy)
                         # ij = random.choices(decoy, weights=np.exp(np.cbrt(weights)), k=1)[0]
-                        # 
                         # ij = random.choices(decoy, weights=np.exp(np.power(weights, 1/3.0)), k=1)[0]
                         ij = random.choice(decoy)
 
                         u = netg.link[ij].tail
                         v = netg.link[ij].head
-                        dG.remove_edge(u, v)
+                        if NETWORK.find('ChicagoSketch') >= 0:
+                            if u > 387 and v > 387:
+                                dG.remove_edge(u, v)
+                                for od in netg.ODpair.values():
+                                    if not nx.has_path(dG, od.origin, od.destination):
+                                        art_links.append(ij)
+                                        break
 
-                        all_reachable = True
-                        j = 0
-                        for od in netg.ODpair.values():
-                            if not nx.has_path(dG, od.origin, od.destination):
-                                all_reachable = False
-                                dG = deepcopy(prev_dG)
-                                break
+                                i += 1
+                                damaged_links.append(ij)
 
-                        if all_reachable:
+                        else:
+                            dG.remove_edge(u, v)
+                            for od in netg.ODpair.values():
+                                if not nx.has_path(dG, od.origin, od.destination):
+                                    art_links.append(ij)
+                                    break
+
                             i += 1
                             damaged_links.append(ij)
-                            prev_dG = deepcopy(dG)
-                            ind_ij = decoy.index(ij)
-                            del weights[ind_ij]
-                            decoy.remove(ij)
+
+                        ind_ij = decoy.index(ij)
+                        del weights[ind_ij]
+                        decoy.remove(ij)
 
                 print('damaged_links are created:', damaged_links)
-                # damaged_links = ['(7,8)', '(3,4)', '(23,14)', '(19,20)']
-                # damaged_links = ['(5,6)', '(8,6)', '(9,8)', '(9,5)', '(8,7)']
                 damaged_dict = {}
                 net.link = {}
                 # pdb.set_trace()
@@ -2319,28 +2359,14 @@ if __name__ == '__main__':
                 len_links = [net.link[lnk]['length-cap'] for lnk in damaged_links]
 
                 for lnk in damaged_links:
-
-                    # damaged_dict[lnk] = np.random.uniform(21, 90)
-
-                    # damaged_dict[lnk] = np.random.gamma(shape=2, scale=4)*7
-                    # damaged_dict[lnk] = np.random.gamma(shape=7, scale=8)
-
-                    # if net.link[lnk]['length-cap'] > np.quantile(len_links, 0.5):
-                        # damaged_dict[lnk] = np.random.gamma(shape=6, scale=10)
-                    # else:
-                        # damaged_dict[lnk] = np.random.gamma(shape=9, scale=6)
-
                     if net.link[lnk]['length-cap'] > np.quantile(len_links, 0.95):
                         damaged_dict[lnk] = np.random.gamma(4*2, 7*2, 1)[0]
-
 
                     elif net.link[lnk]['length-cap'] > np.quantile(len_links, 0.75):
                         damaged_dict[lnk] = np.random.gamma(7*np.sqrt(2), 7*np.sqrt(2), 1)[0]
 
-
                     elif net.link[lnk]['length-cap'] > np.quantile(len_links, 0.5):
                         damaged_dict[lnk] = np.random.gamma(12, 7, 1)[0]
-
 
                     elif net.link[lnk]['length-cap'] > np.quantile(len_links, 0.25):
                         damaged_dict[lnk] = np.random.gamma(10, 7, 1)[0]
@@ -2377,11 +2403,13 @@ if __name__ == '__main__':
                 print(damaged_dict)
                 save_dir = ULT_SCENARIO_REP_DIR
 
+
                 if before_after:
                     damaged_links = damaged_dict.keys()
                     num_damaged = len(damaged_links)
                     net_after, after_eq_tstt, _ = state_after(damaged_links, save_dir)
                     net_before, before_eq_tstt, _ = state_before(damaged_links, save_dir)
+                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
                     t = PrettyTable()
                     t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
                     t.field_names = ['Before EQ TSTT', 'After EQ TSTT']
@@ -2389,9 +2417,9 @@ if __name__ == '__main__':
                     print(t)
                 else:
                     benefit_analysis_st = time.time()
-                    wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir, approx)
+                    wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
                     benefit_analysis_elapsed = time.time() - benefit_analysis_st
-
+                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict)
 
                     ### approx solution methods ###
                     if approx:
@@ -2425,7 +2453,6 @@ if __name__ == '__main__':
                     lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
                         #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time)
                     print('lazy_greedy_obj: ', lg_obj)
-                    bfs = BestSoln()
 
                     wb_update = deepcopy(wb)
                     bb_update = deepcopy(bb)
@@ -2434,6 +2461,8 @@ if __name__ == '__main__':
                     greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
                         net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after)
                     print('greedy_obj: ', greedy_obj)
+
+                    bfs = BestSoln()
                     bfs.cost = greedy_obj
                     bfs.path = greedy_soln
 
@@ -2447,8 +2476,6 @@ if __name__ == '__main__':
                     importance_obj, importance_soln, importance_elapsed, importance_num_tap = importance_factor_solution(
                         net_before, after_eq_tstt, before_eq_tstt, time_net_before)
                     print('importance_obj: ', importance_obj)
-                    
-                    # print(f'links with best/worse swapped: {swapped_links}')
 
                     best_benefit_taps = num_damaged
                     worst_benefit_taps = num_damaged
@@ -2459,6 +2486,9 @@ if __name__ == '__main__':
                             net_after, after_eq_tstt, before_eq_tstt)
 
                         print('optimal obj: {}, optimal path: {}'.format(opt_obj, opt_soln))
+
+                    best_benefit_taps = num_damaged
+                    worst_benefit_taps = num_damaged
 
                     memory1 = deepcopy(memory)
                     # feasible_soln_taps = num_damaged * (num_damaged + 1) / 2.0
@@ -2536,6 +2566,9 @@ if __name__ == '__main__':
                                 wb_update = wb_orig
                                 bb_update = bb_orig
 
+
+                                # bfs.path = greedy_soln
+                                # bfs.cost = greedy_obj
                                 bfs.path = None
                                 bfs.cost = np.inf
 
@@ -2651,12 +2684,12 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
-                    if beam_search:
-                        t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
                     # if len(damaged_links) < 32:
                     #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
-                    # if full:
-                    #     t.add_row(['ALGORITHM', algo_obj, algo_elapsed, algo_num_tap])
+                    if full:
+                        t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
+                    if beam_search:
+                        t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     t.add_row(['IMPORTANCE', importance_obj,
@@ -2669,10 +2702,16 @@ if __name__ == '__main__':
 
                     # print('bs totchild vs uncommon vs common vs purged')
                     # print(tot_childbs, uncommon_numberbs, common_numberbs, num_purgebs)
-                    print('r totchild vs uncommon vs common vs purged')
-                    print(tot_childr, uncommon_numberr, common_numberr, num_purger)
+                    if beam_search:
+                        print('r totchild vs uncommon vs common vs purged')
+                        print(tot_childr, uncommon_numberr, common_numberr, num_purger)
 
                     print('PATHS')
+                    if approx:
+                        print('approx-LAFO: ', LAFO_soln)
+                        print('---------------------------')
+                        print('approx-LASR: ', LASR_soln)
+                        print('---------------------------')
                     if full:
                         print('algorithm: ', algo_path)
                         print('---------------------------')
