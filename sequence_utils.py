@@ -135,7 +135,7 @@ def net_update(net, args, flows=False):
                         if line[:4] == 'next':
                             idx_wanted = idx-1
                             break
-                    last_line = lines[idx_wanted]        
+                    last_line = lines[idx_wanted]
                     obj = last_line[last_line.find('obj') + 3:].strip()
                     try:
                         tstt = float(obj[:obj.find(',')])
@@ -143,7 +143,7 @@ def net_update(net, args, flows=False):
                         try_again = True
 
             os.remove('full_log.txt')
-    
+
     os.remove('current_net.tntp')
 
     return tstt

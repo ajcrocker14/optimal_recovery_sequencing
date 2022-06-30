@@ -6,14 +6,14 @@ class NotYetAttemptedException(Exception):
    """
    This exception is used as a placeholder for code you should fill in.
    """
-   pass   
-   
+   pass
+
 class BadFileFormatException(Exception):
    """
    This exception is raised if a network or demand file is in the wrong format or
    expresses an invalid network.
    """
-   pass   
+   pass
 
 def readMetadata(lines):
    """
@@ -44,18 +44,18 @@ def readMetadata(lines):
          metadata['END OF METADATA'] = lineNumber
          return metadata
       metadata[metadataTag] = metadataValue.strip()
-      
+
    print("Warning: END OF METADATA not found in file")
    return metadata
 
-         
+
 def path2linkTuple(pathString):
    """
    Converts a path expressed as a sequence of nodes, e.g. [1,2,3,4] into a tuple
    of link IDs for use with the Path object (see path.py), in this case
    ((1,2),(2,3),(3,4))
    """
-   
+
    # Remove braces
    pathString = pathString[1:-1]
    # Parse into node list
@@ -69,4 +69,4 @@ def path2linkTuple(pathString):
       linkList.append(linkID)
       prevNode = i
    return tuple(linkList)
-         
+

@@ -4,7 +4,6 @@ import operator as op
 from functools import reduce
 import itertools
 from prettytable import PrettyTable
-import operator
 import multiprocessing as mp
 from graphing import *
 import matplotlib.pyplot as plt
@@ -93,6 +92,9 @@ class Node():
             self.err_rate = 0
 
         self.assign_char()
+
+    def __str__(self):
+        return str(self.path)
 
     def assign_char(self):
 
@@ -364,7 +366,7 @@ def get_minlb(node, fwd_node, bwd_node, orderedb_benefits, orderedw_benefits, or
     node.lb = max(node.lb, lb2 + orig_lb)
 
     ###### FIND UB FROM FORWARDS #####
-    if sum(b) > slack:
+    if sumb > slack:
         for i in range(len(days_b)):
 
             if i == 0:
@@ -399,6 +401,8 @@ def get_minlb(node, fwd_node, bwd_node, orderedb_benefits, orderedw_benefits, or
             node.lb = tempub
 
         else:
+            print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node) + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = ' + str(backward_tstt))
+            print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
             pass
             # pdb.set_trace()
 
@@ -467,7 +471,9 @@ def set_bounds_bif(node, open_list_b, end_node, front_to_end=True, bfs=None, unc
 
 
     if node.lb > node.ub:
-        pdb.set_trace()
+        print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node) + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = ' + str(backward_tstt))
+        print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
+        # pdb.set_trace()
 
     return uncommon_number, common_number
 
@@ -532,6 +538,8 @@ def set_bounds_bib(node, open_list_f, start_node, front_to_end=True, bfs=None, u
 
 
     if node.lb > node.ub:
+        print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node) + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = ' + str(backward_tstt))
+        print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
         pass
         # pdb.set_trace()
     return uncommon_number, common_number
@@ -540,6 +548,7 @@ def set_bounds_bib(node, open_list_f, start_node, front_to_end=True, bfs=None, u
 def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f, bfs, num_tap_solved, max_level_b, closed_list_f, closed_list_b, iter_num, front_to_end=False, uncommon_number=0, tot_child=0, common_number=0):
 
     fvals = [node.f for node in sum(open_list_f.values(),[])]
+    # print('fvals: ' + str(fvals))
     minfind = np.argmin(fvals)
     minimum_ff_n = sum(open_list_f.values(),[])[minfind]
     current_node = minimum_ff_n
@@ -598,12 +607,12 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
 
     # Found the goal
     if current_node == end_node:
-        # print('at the end_node')
+        #print('Iter ' + str(iter_num) + ' at the end_node')
         return open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child, uncommon_number, common_number
 
-    if iter_num > 100:
+    if iter_num > 3*len(damaged_dict):
         if current_node.f > bfs.cost:
-            # print('current node is pruned')
+            print('Iter ' + str(iter_num) + ' current node ' + str(current_node) + ' is pruned.')
             return open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child, uncommon_number, common_number
 
     # Generate children
@@ -619,7 +628,7 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
             current_node, a_link, level=current_level)
         num_tap_solved += solved
         new_node.g = new_node.realized
-        
+
         # Append
         append = True
         removal = False
@@ -649,10 +658,8 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
         # set upper and lower bounds
         tot_child += 1
 
-
         uncommon_number, common_number = set_bounds_bif(child, open_list_b,
                        front_to_end=front_to_end, end_node=end_node, bfs=bfs, uncommon_number=uncommon_number, common_number=common_number)
-
 
 
         if child.ub <= bfs.cost:
@@ -666,13 +673,17 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
             continue
 
         if child.lb > child.ub:
-            pdb.set_trace()
+            print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node) + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = ' + str(backward_tstt))
+            print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
+            pass
+            # pdb.set_trace()
 
         child.g = child.realized
         child.f = child.lb
 
-        if iter_num > 100:
+        if iter_num > 3*len(damaged_dict):
             if child.f > bfs.cost:
+                #print('Iter ' + str(iter_num) + ' Child node ' + str(child) + ' not added because child.f < bfs.cost.')
                 continue
 
         if current_level not in open_list_f.keys():
@@ -743,14 +754,14 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
                 bfs.path = other_end.path + \
                     current_node.path[::-1]
 
-
-
     # Found the goal
     if current_node == start_node:
+        #print('Iter ' + str(iter_num) + ' found the start_node')
         return open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child, uncommon_number, common_number
 
-    if iter_num > 100:
+    if iter_num > 3*len(damaged_dict):
         if current_node.f > bfs.cost:
+            print('Iter ' + str(iter_num) + ' current node ' + str(current_node) + ' is pruned.')
             return open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child, uncommon_number, common_number
 
     # Generate children
@@ -791,8 +802,6 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
         if append:
             children.append(new_node)
 
-
-
     del current_node
     # Loop through children
 
@@ -816,14 +825,17 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
             continue
 
         if child.lb > child.ub:
+            print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node) + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = ' + str(backward_tstt))
+            print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
             pass
             # pdb.set_trace()
 
         child.g = child.realized
         child.f = child.lb
 
-        if iter_num > 100:
+        if iter_num > 3*len(damaged_dict):
             if child.f > bfs.cost:
+                #print('Iter ' + str(iter_num) + ' Child node ' + str(child) + ' not added because child.f < bfs.cost.')
                 continue
 
         if current_level not in open_list_b.keys():
@@ -877,9 +889,12 @@ def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_lis
                     np.array(open_list_f[i])[list(set(range(len(open_list_f[i]))).difference(set(keepinds)))])
                 open_list_f[i] = list(np.array(open_list_f[i])[keepinds])
 
-                olf_node = open_list_f[i][np.argmin([node.f for node in open_list_f[i]])]
-                olf_min = olf_node.f
-                olf_ub = olf_node.ub
+                try:
+                    olf_node = open_list_f[i][np.argmin([node.f for node in open_list_f[i]])]
+                    olf_min = olf_node.f
+                    olf_ub = olf_node.ub
+                except ValueError:
+                    continue
                 removed_from_closed = []
 
 
@@ -918,7 +933,8 @@ def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_lis
                         cur_max = np.max(values_ofn[:])
                         max_idx = np.argmax(values_ofn[:])
                     except:
-                        pdb.set_trace()
+                        pass
+                        # pdb.set_trace()
 
                     if ofn.f < cur_max:
                         indices_ofn[max_idx] = idx
@@ -934,10 +950,12 @@ def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_lis
                 closed_list_b[i] = list(np.array(open_list_b[i])[list(set(range(len(open_list_b[i]))).difference(set(keepinds)))])
                 open_list_b[i] = list(np.array(open_list_b[i])[keepinds])
 
-                olb_node = open_list_b[i][np.argmin([node.f for node in open_list_b[i]])]
-                olb_min = olb_node.f
-                olb_ub = olb_node.ub
-
+                try:
+                    olb_node = open_list_b[i][np.argmin([node.f for node in open_list_b[i]])]
+                    olb_min = olb_node.f
+                    olb_ub = olb_node.ub
+                except ValueError:
+                    continue
                 removed_from_closed = []
 
 
@@ -1023,6 +1041,23 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
             open_list_b, num_tap_solved, level_b, minimum_bf_n, tot_child, uncommon_number, common_number = expand_backward(
                 start_node, end_node, minimum_bf_n , open_list_b, open_list_f, bfs, num_tap_solved, max_level_f, closed_list_f, closed_list_b, iter_count, front_to_end=False, uncommon_number=uncommon_number, tot_child=tot_child, common_number=common_number)
             max_level_b = max(max_level_b, level_b)
+
+        #
+        #print('Iter ' + str(iter_count) +' after expanding '+ str(search_direction) + ': open_list_f ', end=" ")
+        #for item in open_list_f:
+        #    print(item, end=": ")
+        #    for el in open_list_f[item]:
+        #        print(str(el), end=" ")
+        #print('.')
+        #print('and open_list_b ', end=" ")
+        #for item in open_list_b:
+        #    print(item, end=": ")
+        #    for el in open_list_b[item]:
+        #        print(str(el), end=" ")
+        #print('.')
+        #print('minimum_ff_n: ' + str(minimum_ff_n) + ' with f of ' + str(minimum_ff_n.f))
+        #print('minimum_bf_n: ' + str(minimum_bf_n) + ' with f of ' + str(minimum_bf_n.f))
+        #print('bfs is: ' + str(bfs.path) + ' at a cost of ' + str(bfs.cost))
 
         all_open_f = sum(open_list_f.values(), [])
         all_open_b = sum(open_list_b.values(), [])
@@ -1245,14 +1280,39 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                 b_activated = True
 
             if f_activated or b_activated:
+                #
+                print('Iter ' + str(iter_count) + ': len_f ' + str(len_f) + ' and len_b ' + str(len_b) + ' about to purge')
+
                 if beam_search:
                     open_list_b, open_list_f, num_purged, f_activated, b_activated, closed_list_f, closed_list_b = purge(
                     open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_list_f, closed_list_b, f_activated, b_activated, minimum_ff_n, minimum_bf_n, iter_count, beta=beta)
+                    #
+                    #print('Iter ' + str(iter_count) +' after purging '+ str(search_direction) + ': open_list_f ', end=" ")
+                    #for item in open_list_f:
+                    #    print(item, end=": ")
+                    #    for el in open_list_f[item]:
+                    #        print(str(el), end=" ")
+                    #print('and closed_list_f ', end=" ")
+                    #for item in closed_list_f:
+                    #    print(item, end=": ")
+                    #    for el in closed_list_f[item]:
+                    #        print(str(el), end=" ")
+                    #print('and open_list_b ', end=" ")
+                    #for item in open_list_b:
+                    #    print(item, end=": ")
+                    #    for el in open_list_b[item]:
+                    #        print(str(el), end=" ")
+                    #print('and closed_list_b ', end=" ")
+                    #for item in closed_list_b:
+                    #    print(item, end=": ")
+                    #    for el in closed_list_b[item]:
+                    #        print(str(el), end=" ")
+                    #print('.')
 
     #check in case something weird happened
     if len(bfs.path) != len(damaged_links):
         print('{} is not {}'.format('bestpath', 'full length'))
-        pdb.set_trace()
+        # pdb.set_trace()
 
     return bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number, num_purged
 
@@ -1694,8 +1754,7 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
     if is_approx:
         approx_ext = '_approx'
         # verbose = True
-
-    global approx_params
+        global approx_params
 
     fname = net_after.save_dir + '/min_seq' + approx_ext
 
@@ -1820,7 +1879,7 @@ def lazy_greedy_heuristic():
     bound, eval_taps, _ = eval_sequence(net_b, lzg_order, a_eq_tstt, b_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
     tap_solved = len(damaged_dict)
 
-    fname = save_dir + '/layzgreedy_solution'
+    fname = save_dir + '/lazygreedy_solution'
     save(fname + '_obj', bound)
     save(fname + '_path', lzg_order)
     save(fname + '_elapsed', elapsed)
@@ -1829,9 +1888,7 @@ def lazy_greedy_heuristic():
 
 def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after):
     start = time.time()
-
     tap_solved = 0
-
     fname = net_after.save_dir + '/greedy_solution'
 
     if not os.path.exists(fname + extension):
@@ -1863,6 +1920,8 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
                 test_net.not_fixed = set(not_fixed)
 
                 after_fix_tstt = solve_UE(net=test_net)
+                global memory
+                memory[frozenset(test_net.not_fixed)] = after_fix_tstt
                 tap_solved += 1
 
                 diff = after_ - after_fix_tstt
@@ -1975,7 +2034,7 @@ def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
 
     fig, ax = plt.subplots(figsize = (12,9))
     plt.xlim(math.floor(xMin/scale)*scale,math.ceil(xMax/scale)*scale)
-    plt.ylim(math.floor(yMin/scale)*scale,math.ceil(yMax/scale+1)*scale)
+    plt.ylim(math.floor(yMin/scale)*scale,math.ceil(yMax/scale+0.2)*scale)
     plt.rcParams["font.size"] = 6
 
     # plot nodes
@@ -2179,7 +2238,7 @@ if __name__ == '__main__':
                         dist_dict[anode] = distance
 
                     #sort dist_dict by distances
-                    sorted_dist = sorted(dist_dict.items(), key=operator.itemgetter(1))
+                    sorted_dist = sorted(dist_dict.items(), key=op.itemgetter(1))
                     all_nodes = [nodes[0] for nodes in sorted_dist]
                     distances = [nodes[1] for nodes in sorted_dist]
 
@@ -2419,12 +2478,13 @@ if __name__ == '__main__':
                     benefit_analysis_st = time.time()
                     wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
                     benefit_analysis_elapsed = time.time() - benefit_analysis_st
-                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict)
+                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
+
 
                     ### approx solution methods ###
+                    global approx_params
+                    approx_params = None
                     if approx:
-                        global approx_params
-
                         preprocess_st = time.time()
                         model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
                         approx_params = (model, meany, stdy)
@@ -2477,8 +2537,10 @@ if __name__ == '__main__':
                         net_before, after_eq_tstt, before_eq_tstt, time_net_before)
                     print('importance_obj: ', importance_obj)
 
-                    best_benefit_taps = num_damaged
-                    worst_benefit_taps = num_damaged
+                    if importance_obj < bfs.cost:
+                       bfs.cost = importance_obj
+                       bfs.path = importance_soln
+
 
                     ## Get optimal solution via brute force ###
                     if opt:
@@ -2539,7 +2601,7 @@ if __name__ == '__main__':
 
                             # betas = [64, 128, 256, 512]
                             # gammas = [32, 64, 128]
-                            
+
                             betas = [128]
                             gammas = [128]
 
@@ -2567,12 +2629,16 @@ if __name__ == '__main__':
                                 bb_update = bb_orig
 
 
-                                # bfs.path = greedy_soln
-                                # bfs.cost = greedy_obj
-                                bfs.path = None
-                                bfs.cost = np.inf
+                                if greedy_obj <= importance_obj:
+                                    bfs.cost = greedy_obj
+                                    bfs.path = greedy_soln
+                                else:
+                                    bfs.cost = importance_obj
+                                    bfs.path = importance_soln
+                                # bfs.path = None
+                                # bfs.cost = np.inf
 
-                                r_algo_num_tap = best_benefit_taps + worst_benefit_taps
+                                r_algo_num_tap = best_benefit_taps + worst_benefit_taps + greedy_num_tap
 
                                 start_node.relax = True
                                 end_node.relax = True
@@ -2593,7 +2659,7 @@ if __name__ == '__main__':
                                     first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
                                 r_algo_num_tap += r_search_tap_solved
-                                r_algo_elapsed = search_elapsed + benefit_analysis_elapsed
+                                r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
 
                                 save(fname + '_obj', r_algo_obj)
                                 save(fname + '_path', r_algo_path)
