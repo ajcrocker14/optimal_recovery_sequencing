@@ -44,8 +44,8 @@ python3 find_sequence.py -n SiouxFalls -b 5 -l 1 -r 1
 
 ## Authors
 
-* **Can Gokalp** - *Primary implementation* 
-* **Abigail Crocker** - *Updated implementation for multi-class demand and multiple work crews*
+* **Can Gokalp** - *Original implementation* 
+* **Abigail Crocker** - *Updated implementation for improved beam search, simulated annealing, multi-class demand, and multiple work crews*
 
 ## License
 
