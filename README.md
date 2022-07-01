@@ -49,6 +49,6 @@ python3 find_sequence.py -n SiouxFalls -b 5 -l 1 -r 1
 
 ## License
 
-This project is licensed under the ___ license - see the [LICENSE.md](LICENSE.md) file for details.
+This project is licensed under the MIT license - see the [LICENSE.md](LICENSE.md) file for details.
 
 ## Acknowledgements

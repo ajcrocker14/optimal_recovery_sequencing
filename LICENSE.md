@@ -1,6 +1,9 @@
 MIT License
 
-Copyright (c) 2022 Can Gokalp
+Copyright (c) for portions of this project are held by Can Gokalp, 2022,
+repository at https://github.com/cangokalp/optimal_recovery_sequencing.
+All other copyright (c) is held by Abigail Crocker, 2022. See GitHub commit
+history for differentiation.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
