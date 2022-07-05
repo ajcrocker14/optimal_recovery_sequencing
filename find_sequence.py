@@ -1436,7 +1436,7 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links):
         fail = 0
         ratio = 0
 
-        while (ratio < .7 or t < len(current)**2) and t < len(current)**3:
+        while t < 1.2 * len(current)**3:
             t += 1
             idx = random.randrange(0,len(current)-1)
             next = deepcopy(current)
@@ -1471,11 +1471,11 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links):
             if negdelta > 0:
                 current = deepcopy(next)
                 curcost = deepcopy(nextcost)
-                print('Iter ' +str(t) + ' positive movement')
+                #print('Iter ' +str(t) + ' positive movement')
                 #print('MOVED TO NEW STATE ' + str(current) + ' on iteration ' + str(t))
 
             else:
-                prob = math.exp(negdelta/curcost*(t**2)*len(current)**2)
+                prob = math.exp(negdelta/curcost*(t**(2/3)))
                 if random.random() <= prob:
                     current = deepcopy(next)
                     curcost = deepcopy(nextcost)
@@ -1810,7 +1810,7 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
 
         # seq_dict = {}
         i = 0
-        min_cost = 1000000000000000
+        min_cost = 1e+80
         min_seq = None
 
         for sequence in all_sequences:
@@ -1821,7 +1821,7 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False):
             tap_solved += eval_taps
             # seq_dict[sequence] = cost
 
-            if cost < min_cost:
+            if cost < min_cost or min_cost == 1e+80:
                 min_cost = cost
                 min_seq = sequence
 

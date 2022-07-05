@@ -1,4 +1,4 @@
-import pickle 
+import pickle
 import os
 from copy import deepcopy
 import shlex
@@ -50,7 +50,6 @@ def save_fig(plt_path, algo, tight_layout=True, fig_extension="png", resolution=
 
 
 def create_network(netfile=None, tripfile=None):
-
     net = Network(netfile, tripfile)
     return net
 
@@ -68,7 +67,6 @@ def read_scenario(fname='ScenarioAnalysis.xlsx', sname='Moderate_1'):
 
 
 def net_update(net, args, flows=False):
-
     if flows:
         f = "flows.txt"
         file_created = False
@@ -102,10 +100,6 @@ def net_update(net, args, flows=False):
 
                 os.remove('flows.txt')
 
-
-
-
-
     try_again = False
     f = "full_log.txt"
     file_created = False
@@ -117,7 +111,6 @@ def net_update(net, args, flows=False):
             with open(f, "r") as log_file:
                 last_line = log_file.readlines()[-1]
                 if last_line.find('obj') >= 0:
-
                     obj = last_line[last_line.find('obj') + 3:].strip()
                     try:
                         tstt = float(obj[:obj.find(',')])
@@ -125,7 +118,6 @@ def net_update(net, args, flows=False):
                         try_again = True
                 else:
                     try_again = True
-
 
             idx_wanted = None
             if try_again:
@@ -135,6 +127,7 @@ def net_update(net, args, flows=False):
                         if line[:4] == 'next':
                             idx_wanted = idx-1
                             break
+
                     last_line = lines[idx_wanted]
                     obj = last_line[last_line.find('obj') + 3:].strip()
                     try:
@@ -150,7 +143,6 @@ def net_update(net, args, flows=False):
 
 
 def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=False):
-
     # modify the net.txt file to send to c code
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
@@ -171,12 +163,12 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             df.loc[ind, 'Unnamed: 5'] = 1e10
 
         df.to_csv('current_net.tntp', index=False, sep="\t")
+
     f = 'current_net.tntp'
     file_created = False
     while not file_created:
         if os.path.exists(f):
             file_created = True
-
 
     if rev:
         bush_loc = 'after/batch0.bin'
@@ -196,6 +188,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
         temp = ""
         for item in net.tripfile:
             temp = temp + item + " "
+
         if eval_seq:
             args = shlex.split(folder_loc + "1e-7 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
         else:
@@ -203,6 +196,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
                 args = shlex.split(folder_loc + "1e-4 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
             else:
                 args = shlex.split(folder_loc + "1e-6 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
+
     else:
         if eval_seq:
             args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " " + str(cores))
@@ -211,7 +205,6 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
                 args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile + " " + str(cores))
             else:
                 args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile + " " + str(cores))
-
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
@@ -282,9 +275,11 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             crews[which_crew[link_id]] += damaged_dict[link_id]
             days_list.append(crews[which_crew[link_id]] - total_days)
             total_days = max(crews)
+
         added.append(link_id)
         not_fixed = set(to_visit).difference(set(added))
         net.not_fixed = set(not_fixed)
+
         if is_approx:
             damaged_links = list(damaged_dict.keys())
             state = list(set(damaged_links).difference(net.not_fixed))
@@ -315,10 +310,7 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
     return tot_area, tap_solved, tstt_list
 
 
-
-
 def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, damaged_dict):
-
     _, _, tstt_list = eval_sequence(
         deepcopy(net), path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
 
@@ -329,9 +321,3 @@ def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, damaged_dict):
         days_list.append(damaged_dict[link])
 
     return tstt_list, days_list
-
-
-
-
-
-
