@@ -12,5 +12,4 @@ __pycache__/
 *.bin
 saved/
 tap-b_wu/
-TransportationNetworks/
 .idea/
