@@ -57,6 +57,7 @@ parser.add_argument('-v', '--beta', type=int,
 parser.add_argument('-d', '--num_crews', type=int, help='number of work crews available', default=1)
 parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
 parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs', default=False)
+parser.add_argument('--damaged', type=str, help='set damaged_dict to known values to explore various parameters', default='')
 
 args = parser.parse_args()
 
@@ -2117,8 +2118,6 @@ def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
 if __name__ == '__main__':
 
     net_name = args.net_name
-    if net_name == 'Chicago-Sketch':
-        net_name = 'ChicagoSketch'
     num_broken = args.num_broken
     approx = args.approx
     reps = args.reps
@@ -2135,8 +2134,14 @@ if __name__ == '__main__':
     location_based = args.loc
     opt = args.opt
     sa = args.sa
+    damaged_dict_preset = args.damaged
+    print(damaged_dict_preset)
 
     NETWORK = os.path.join(FOLDER, net_name)
+    if net_name == 'Chicago-Sketch':
+        net_name = 'ChicagoSketch'
+    if net_name == 'Berlin-Mitte-Center':
+        net_name = 'berlin-mitte-center'
     JSONFILE = os.path.join(NETWORK, net_name.lower() + '.geojson')
     NETFILE = os.path.join(NETWORK, net_name + "_net.tntp")
 
@@ -2167,7 +2172,9 @@ if __name__ == '__main__':
         get_common_numbers()
         get_tables(NETWORK_DIR)
     else:
-        if rand_gen:
+        global approx_params
+        approx_params = None
+        if rand_gen and damaged_dict_preset=='':
 
             for rep in range(reps):
                 print(num_broken)
@@ -2249,14 +2256,7 @@ if __name__ == '__main__':
                             lat = row['Y']
                             coord_dict[row['Node']] = (lon, lat)
 
-                    if NETWORK.find('Anaheim') >= 0:
-                        nodetntp = pd.read_json(os.path.join(NETWORK, 'anaheim_nodes.geojson'))
-                        coord_dict = {}
-
-                        for index, row in nodetntp.iterrows():
-                            coord_dict[row['features']['properties']['id']] = row['features']['geometry']['coordinates']
-
-                    if NETWORK.find('ChicagoSketch') >= 0:
+                    if NETWORK.find('Chicago-Sketch') >=0:
                         nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), delimiter='\t')
                         coord_dict = {}
 
@@ -2265,10 +2265,26 @@ if __name__ == '__main__':
                             lat = row['Y']
                             coord_dict[row['node']] = (lon, lat)
 
+                    if NETWORK.find('Anaheim') >= 0:
+                        nodetntp = pd.read_json(os.path.join(NETWORK, 'anaheim_nodes.geojson'))
+                        coord_dict = {}
+
+                        for index, row in nodetntp.iterrows():
+                            coord_dict[row['features']['properties']['id']] = row['features']['geometry']['coordinates']
+
+                    if NETWORK.find('Berlin-Mitte-Center') >= 0:
+                        nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"), delim_whitespace = True, skipinitialspace=True)
+                        coord_dict = {}
+
+                        for index, row in nodetntp.iterrows():
+                            lon = row['X']
+                            lat = row['Y']
+                            coord_dict[row['Node']] = (lon, lat)
+
                     #pick a center node at random:
                     nodedecoy = deepcopy(list(netg.node.keys()))
                     nodedecoy = sorted(nodedecoy)
-                    if NETWORK.find('ChicagoSketch') >= 0:
+                    if NETWORK.find('Chicago-Sketch') >= 0:
                         nodedecoy = nodedecoy[387:]
                     center_node = np.random.choice(nodedecoy, 1, replace=False)[0]
 
@@ -2321,7 +2337,7 @@ if __name__ == '__main__':
 
                         for alink in links_rev:
                             if alink not in linkset:
-                                if NETWORK.find('ChicagoSketch') >= 0:
+                                if NETWORK.find('Chicago-Sketch') >= 0:
                                     if netg.link[alink].tail > 387:
                                         linkset.append(alink)
                                 else:
@@ -2329,7 +2345,7 @@ if __name__ == '__main__':
 
                         for alink in links_fw:
                             if alink not in linkset:
-                                if NETWORK.find('ChicagoSketch') >= 0:
+                                if NETWORK.find('Chicago-Sketch') >= 0:
                                     if netg.link[alink].head > 387:
                                         linkset.append(alink)
                                 else:
@@ -2401,7 +2417,7 @@ if __name__ == '__main__':
 
                         u = netg.link[ij].tail
                         v = netg.link[ij].head
-                        if NETWORK.find('ChicagoSketch') >= 0:
+                        if NETWORK.find('Chicago-Sketch') >= 0:
                             if u > 387 and v > 387:
                                 dG.remove_edge(u, v)
                                 for od in netg.ODpair.values():
@@ -2519,8 +2535,6 @@ if __name__ == '__main__':
 
 
                     ### approx solution methods ###
-                    global approx_params
-                    approx_params = None
                     if approx:
                         preprocess_st = time.time()
                         model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
@@ -2529,12 +2543,14 @@ if __name__ == '__main__':
                         time_before = preprocess_elapsed + time_net_before
 
                         ### Largest Averge First Order ###
-                        LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                        LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
+                            net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                         LAFO_num_tap += preprocessing_num_tap
                         print('LAFO_obj: ', LAFO_obj)
 
                         ### Largest Averge Smith Ratio ###
-                        LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                        LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(
+                            net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                         LASR_num_tap += preprocessing_num_tap
                         print('LASR_obj: ', LASR_obj)
 
@@ -2543,7 +2559,8 @@ if __name__ == '__main__':
                         # print('approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
 
                     ### Shortest processing time solution ###
-                    SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before)
+                    SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
+                        net_before, after_eq_tstt, before_eq_tstt, time_net_before)
                     print('SPT_obj: ', SPT_obj)
 
                     ### Lazy greedy solution ###
@@ -2845,6 +2862,318 @@ if __name__ == '__main__':
                     print('importance factors: ', importance_soln)
                     print('---------------------------')
                     print('shortest processing time: ', SPT_soln)
+
+
+        elif damaged_dict_preset != '':
+            damaged_dict = load(damaged_dict_preset + '/' + 'damaged_dict')
+
+            SCENARIO_DIR = NETWORK_DIR
+            ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
+
+            i = ord('a')
+            while True:
+                try:
+                    ULT_SCENARIO_REP_DIR = damaged_dict_preset+chr(i)
+                    os.makedirs(ULT_SCENARIO_REP_DIR)
+                    break
+                except FileExistsError:
+                    print(chr(i) + ' is already taken, trying ' + chr(i+1))
+                    i += 1
+                if i > 121:
+                    break
+
+            damaged_links = damaged_dict.keys()
+            num_damaged = len(damaged_links)
+
+            print(damaged_dict)
+            save_dir = ULT_SCENARIO_REP_DIR
+
+
+            if before_after:
+                net_after, after_eq_tstt, _ = state_after(damaged_links, save_dir)
+                net_before, before_eq_tstt, _ = state_before(damaged_links, save_dir)
+                t = PrettyTable()
+                t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
+                t.field_names = ['Before EQ TSTT', 'After EQ TSTT']
+                t.add_row([before_eq_tstt, after_eq_tstt])
+                print(t)
+            else:
+                memory = {}
+                benefit_analysis_st = time.time()
+                wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
+                benefit_analysis_elapsed = time.time() - benefit_analysis_st
+
+
+                ### approx solution methods ###
+                if approx:
+                    preprocess_st = time.time()
+                    model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
+                    approx_params = (model, meany, stdy)
+                    preprocess_elapsed = time.time() - preprocess_st
+                    time_before = preprocess_elapsed + time_net_before
+
+                    ### Largest Averge First Order ###
+                    LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
+                        net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                    LAFO_num_tap += preprocessing_num_tap
+                    print('LAFO_obj: ', LAFO_obj)
+
+                    ### Largest Averge Smith Ratio ###
+                    LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(
+                        net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                    LASR_num_tap += preprocessing_num_tap
+                    print('LASR_obj: ', LASR_obj)
+
+                    # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
+                    # approx_num_tap += preprocessing_num_tap
+                    # print('approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
+
+
+                ### Shortest processing time solution ###
+                SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
+                    net_before, after_eq_tstt, before_eq_tstt, time_net_before)
+                print('SPT_obj: ', SPT_obj)
+
+                ### Lazy greedy solution ###
+                lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
+                    #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time)
+                print('lazy_greedy_obj: ', lg_obj)
+
+                wb_update = deepcopy(wb)
+                bb_update = deepcopy(bb)
+
+
+                ### Get greedy solution ###
+                greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
+                    net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after)
+                print('greedy_obj: ', greedy_obj)
+
+                bfs = BestSoln()
+                bfs.cost = greedy_obj
+                bfs.path = greedy_soln
+
+                wb = deepcopy(wb_update)
+                bb = deepcopy(bb_update)
+
+                wb_orig = deepcopy(wb)
+                bb_orig = deepcopy(bb)
+
+
+                ### Get feasible solution using importance factor ###
+                importance_obj, importance_soln, importance_elapsed, importance_num_tap = importance_factor_solution(
+                    net_before, after_eq_tstt, before_eq_tstt, time_net_before)
+                print('importance_obj: ', importance_obj)
+
+                if importance_obj < bfs.cost:
+                    bfs.cost = importance_obj
+                    bfs.path = importance_soln
+
+
+                ### Get optimal solution via brute force ###
+                if opt:
+                    opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
+                        net_after, after_eq_tstt, before_eq_tstt)
+
+                    print('optimal obj: {}, optimal path: {}'.format(opt_obj, opt_soln))
+
+                best_benefit_taps = num_damaged
+                worst_benefit_taps = num_damaged
+
+                memory1 = deepcopy(memory)
+
+
+                ### Get simulated annealing solution ###
+                if sa:
+                    sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
+                    bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links)
+                    sa_elapsed += greedy_elapsed + importance_elapsed
+                    sa_num_tap += greedy_num_tap
+
+                    print('simulated annealing obj: ', sa_obj)
+
+
+                ### Use full search algorthm to find solution ###
+                if full:
+                    print('full')
+                    algo_num_tap = best_benefit_taps + worst_benefit_taps
+
+                    fname = save_dir + '/algo_solution'
+
+                    if not os.path.exists(fname + extension):
+                        search_start = time.time()
+                        algo_path, algo_obj, search_tap_solved, tot_child, uncommon_number, common_number, _ = search(
+                            start_node, end_node, bfs)
+                        search_elapsed = time.time() - search_start + greedy_elapsed
+
+                        net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
+                        net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
+
+                        first_net = deepcopy(net_after)
+                        first_net.relax = False
+                        algo_obj, _, _ = eval_sequence(
+                            first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+
+                        algo_num_tap += search_tap_solved + greedy_num_tap
+                        algo_elapsed = search_elapsed + benefit_analysis_elapsed
+
+                        save(fname + '_obj', algo_obj)
+                        save(fname + '_path', algo_path)
+                        save(fname + '_num_tap', algo_num_tap)
+                        save(fname + '_elapsed', algo_elapsed)
+                        save(fname + '_totchild', tot_child)
+                        save(fname + '_uncommon', uncommon_number)
+                        save(fname + '_common', common_number)
+                    else:
+                        algo_obj = load(fname + '_obj')
+                        algo_path = load(fname + '_path')
+                        algo_num_tap = load(fname + '_num_tap')
+                        algo_elapsed = load(fname + '_elapsed')
+
+                    print('---------------FULLOBJ')
+                    print('full obj: ', algo_obj)
+
+
+                ### Use beamsearch algorithm to find solution ###
+                if beam_search:
+
+                    ks = [2]
+
+                    for k in ks:
+                        # betas = [64, 128, 256, 512]
+                        # gammas = [32, 64, 128]
+
+                        betas = [128]
+                        gammas = [128]
+
+                        beta_gamma = list(itertools.product(gammas, betas))
+
+                        experiment_dict = {}
+                        # for gamma in gammas:
+                        for a_pair in beta_gamma:
+                            gamma = a_pair[0]
+                            beta = a_pair[1]
+                            # a_pair = gamma
+
+                            # beamsearch with gap 1e-4
+                            print('===', gamma, beta , '===')
+
+                            fname = save_dir + '/r_algo_solution' + '_k' + str(k)
+                            ext_name = 'r_k' + str(k)
+
+                            del memory
+                            memory = deepcopy(memory1)
+
+                            wb = wb_orig
+                            bb = bb_orig
+                            wb_update = wb_orig
+                            bb_update = bb_orig
+
+
+                            if greedy_obj <= importance_obj:
+                                bfs.cost = greedy_obj
+                                bfs.path = greedy_soln
+                            else:
+                                bfs.cost = importance_obj
+                                bfs.path = importance_soln
+
+                            r_algo_num_tap = best_benefit_taps + worst_benefit_taps + greedy_num_tap
+
+                            start_node.relax = True
+                            end_node.relax = True
+
+
+                            # if not os.path.exists(fname + extension):
+                            search_start = time.time()
+                            r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr, uncommon_numberr, common_numberr, num_purger = search(
+                            start_node, end_node, bfs, beam_search=beam_search, beam_k=k, beta=beta, gamma=gamma)
+                            search_elapsed = time.time() - search_start
+
+                            net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
+                            net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
+
+                            first_net = deepcopy(net_after)
+                            first_net.relax = False
+                            r_algo_obj, _, _ = eval_sequence(
+                                first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                            r_algo_num_tap += r_search_tap_solved
+                            r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
+
+                            save(fname + '_obj', r_algo_obj)
+                            save(fname + '_path', r_algo_path)
+                            save(fname + '_num_tap', r_algo_num_tap)
+                            save(fname + '_elapsed', r_algo_elapsed)
+                            save(fname + '_totchild', tot_childr)
+                            save(fname + '_uncommon', uncommon_numberr)
+                            save(fname + '_common', common_numberr)
+                            save(fname + '_num_purge', num_purger)
+
+                            # else:
+                            #     r_algo_obj = load(fname + '_obj')
+                            #     r_algo_path = load(fname + '_path')
+                            #     r_algo_num_tap = load(fname + '_num_tap')
+                            #     r_algo_elapsed = load(fname + '_elapsed')
+
+                            print(f'beam_search k: {k}, relaxed: True')
+                            print('obj: ', r_algo_obj)
+                            experiment_dict[a_pair] = [r_algo_obj, r_algo_num_tap, r_algo_elapsed]
+
+                        for k,v in experiment_dict.items():
+                            print('Gamma - Beta: {}, obj-tap-elapsed: {}'.format(k,v))
+
+
+                t = PrettyTable()
+                t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
+                t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
+                if opt:
+                    t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
+                if approx:
+                    t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
+                    t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
+                # if len(damaged_links) < 32:
+                #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
+                if full:
+                    t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
+                if beam_search:
+                    t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
+                if sa:
+                    t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
+                t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
+                t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
+                t.add_row(['IMPORTANCE', importance_obj,
+                           importance_elapsed, importance_num_tap])
+                t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
+                print(t)
+
+                print(swapped_links)
+                # pdb.set_trace()
+
+                # print('bs totchild vs uncommon vs common vs purged')
+                # print(tot_childbs, uncommon_numberbs, common_numberbs, num_purgebs)
+                if beam_search:
+                    print('r totchild vs uncommon vs common vs purged')
+                    print(tot_childr, uncommon_numberr, common_numberr, num_purger)
+
+                print('PATHS')
+                if approx:
+                    print('approx-LAFO: ', LAFO_soln)
+                    print('---------------------------')
+                    print('approx-LASR: ', LASR_soln)
+                    print('---------------------------')
+                if full:
+                    print('algorithm: ', algo_path)
+                    print('---------------------------')
+                if beam_search:
+                    print('beamsearch: ', r_algo_path)
+                    print('---------------------------')
+                if sa:
+                    print('simulated annealing: ', sa_soln)
+                    print('---------------------------')
+                print('greedy: ', greedy_soln)
+                print('---------------------------')
+                print('importance factors: ', importance_soln)
+                print('---------------------------')
+                print('shortest processing time: ', SPT_soln)
+
 
         else:
             damaged_dict_ = get_broken_links(JSONFILE, scenario_file)

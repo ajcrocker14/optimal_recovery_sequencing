@@ -57,6 +57,11 @@ class Network:
         self.numZones = 0
         self.firstThroughNode = 0
 
+        if type(demandFile) == list:
+            self.numClasses = len(demandFile)
+        else:
+            self.numClasses = 1
+
         self.node = dict()
         self.link = dict()
         self.ODpair = dict()
@@ -1058,8 +1063,7 @@ class Network:
                     print(
                         "Warning: Not all metadata present, error checking will be limited and code will proceed as though all nodes are through nodes.")
                 self.tollFactor = float(metadata.setdefault('TOLL FACTOR', 0))
-                self.distanceFactor = float(
-                    metadata.setdefault('DISTANCE FACTOR', 0))
+                self.distanceFactor = float(metadata.setdefault('DISTANCE FACTOR', 0))
 
                 for line in fileLines[metadata['END OF METADATA']:]:
                     # Ignore comments and blank lines
@@ -1152,18 +1156,47 @@ class Network:
                         print("Demand data line not formatted properly:\n %s" % line)
                         raise utils.BadFileFormatException
 
-                    for i in range(int(len(data) // 3)):
-                        destination = int(data[i * 3])
-                        check = data[i * 3 + 1]
-                        demand = data[i * 3 + 2]
-                        demand = float(demand[:len(demand) - 1])
-                        if check != ':':
-                            print(
-                                "Demand data line not formatted properly:\n %s" % line)
-                            raise utils.BadFileFormatException
-                        ODID = str(origin) + '->' + str(destination)
-                        self.ODpair[ODID] = OD(origin, destination, demand)
-                        self.totalDemand += demand
+                    if len(data) % 3 == 0:
+                        try:
+                            for i in range(int(len(data) // 3)):
+                                destination = int(data[i * 3])
+                                check = data[i * 3 + 1]
+                                demand = data[i * 3 + 2]
+                                demand = float(demand[:len(demand) - 1])
+                                if check != ':':
+                                    print(
+                                        "Demand data line not formatted properly:\n %s" % line)
+                                    raise utils.BadFileFormatException
+                                ODID = str(origin) + '->' + str(destination)
+                                self.ODpair[ODID] = OD(origin, destination, demand)
+                                self.totalDemand += demand
+                        except:
+                            for i in range(int(len(data) // 4)):
+                                destination = int(data[i * 4])
+                                check = data[i * 4 + 1]
+                                demand = data[i * 4 + 2]
+                                demand = float(demand[:len(demand)])
+                                if check != ':':
+                                    print(
+                                        "Demand data line not formatted properly:\n %s" % line)
+                                    raise utils.BadFileFormatException
+                                ODID = str(origin) + '->' + str(destination)
+                                self.ODpair[ODID] = OD(origin, destination, demand)
+                                self.totalDemand += demand
+
+                    else:
+                        for i in range(int(len(data) // 4)):
+                            destination = int(data[i * 4])
+                            check = data[i * 4 + 1]
+                            demand = data[i * 4 + 2]
+                            demand = float(demand[:len(demand)])
+                            if check != ':':
+                                print(
+                                    "Demand data line not formatted properly:\n %s" % line)
+                                raise utils.BadFileFormatException
+                            ODID = str(origin) + '->' + str(destination)
+                            self.ODpair[ODID] = OD(origin, destination, demand)
+                            self.totalDemand += demand
 
         except IOError:
             print("\nError reading network file %s" % networkFile)
@@ -1172,19 +1205,21 @@ class Network:
     def readMultDemandFile(self, demandFileName):
         """
         Reads demand (OD matrix) data from multiple files in the TNTP format.
+        Assumes that each demand file contains one class of demand.
         """
         try:
             self.totalDemand = 0
-            for item in demandFileName:
-                with open(item, "r") as demandFile:
+            self.classDemandCheck = np.repeat(None,self.numClasses)
+            self.tollFactor = np.repeat(self.tollFactor,self.numClasses)
+            self.distanceFactor = np.repeat(self.distanceFactor,self.numClasses)
+            for c in range(self.numClasses):
+                with open(demandFileName[c], "r") as demandFile:
                     fileLines = demandFile.read().splitlines()
 
-                    # Set default parameters for metadata, then read
-                    self.totalDemandCheck = None
-
+                    # Read metadata
                     metadata = utils.readMetadata(fileLines)
                     try:
-                        self.totalDemandCheck = float(metadata['TOTAL OD FLOW'])
+                        self.classDemandCheck[c] = float(metadata['TOTAL OD FLOW'])
                         if self.numZones != None:
                             if self.numZones != int(metadata['NUMBER OF ZONES']):
                                 print(
@@ -1196,6 +1231,9 @@ class Network:
                     except KeyError:  # KeyError
                         print(
                             "Warning: Not all metadata present in demand file, error checking will be limited.")
+                    self.tollFactor[c] = float(metadata.setdefault('TOLL FACTOR', 0))
+                    self.distanceFactor[c] = float(metadata.setdefault('DISTANCE FACTOR', 0))
+
 
                     for line in fileLines[metadata['END OF METADATA']:]:
                         # Ignore comments and blank lines
@@ -1218,21 +1256,44 @@ class Network:
                             print("Demand data line not formatted properly:\n %s" % line)
                             raise utils.BadFileFormatException
 
-                        for i in range(int(len(data) // 3)):
-                            destination = int(data[i * 3])
-                            check = data[i * 3 + 1]
-                            ODID = str(origin) + '->' + str(destination)
-                            demand = data[i * 3 + 2]
-                            demand = float(demand[:len(demand) - 1])
-                            if check != ':':
-                                print(
-                                    "Demand data line not formatted properly:\n %s" % line)
-                                raise utils.BadFileFormatException
-                            try:
-                                self.ODpair[ODID].demand += demand
-                            except KeyError:
-                                self.ODpair[ODID] = OD(origin, destination, demand)
+                        if len(data) % 3 == 0:
+                            for i in range(int(len(data) // 3)):
+                                destination = int(data[i * 3])
+                                check = data[i * 3 + 1]
+                                ODID = str(origin) + '->' + str(destination)
+                                demand = data[i * 3 + 2]
+                                demand = float(demand[:len(demand) - 1])
+                                if check != ':':
+                                    print(
+                                        "Demand data line not formatted properly:\n %s" % line)
+                                    raise utils.BadFileFormatException
+                                try:
+                                    self.ODpair[ODID].demand += demand
+                                except KeyError:
+                                    self.ODpair[ODID] = OD(origin, destination, demand)
                                 self.totalDemand += demand
+
+                        else:
+                            for i in range(int(len(data) // 4)):
+                                destination = int(data[i * 4])
+                                check = data[i * 4 + 1]
+                                ODID = str(origin) + '->' + str(destination)
+                                demand = data[i * 4 + 2]
+                                demand = float(demand[:len(demand)])
+                                if check != ':':
+                                    print(
+                                        "Demand data line not formatted properly:\n %s" % line)
+                                    raise utils.BadFileFormatException
+                                try:
+                                    self.ODpair[ODID].demand += demand
+                                except KeyError:
+                                    self.ODpair[ODID] = OD(origin, destination, demand)
+                                self.totalDemand += demand
+
+            try:
+                self.totalDemandCheck = sum(self.classDemandCheck)
+            except:
+                self.totalDemandCheck = None
 
         except IOError:
             print("\nError reading network file %s" % networkFile)
@@ -1314,9 +1375,17 @@ class Network:
         for ij in self.link:
             self.node[self.link[ij].tail].forwardStar.append(ij)
             self.node[self.link[ij].head].reverseStar.append(ij)
-            self.link[ij].cost = self.link[ij].freeFlowTime + self.link[ij].length * \
-                self.distanceFactor + self.link[ij].toll * self.tollFactor
             self.link[ij].flow = 0
+            if self.numClasses == 1:
+                self.link[ij].cost = self.link[ij].freeFlowTime + self.link[ij].length * \
+                    self.distanceFactor + self.link[ij].toll * self.tollFactor
+            else:
+                self.link[ij].cost = self.link[ij].freeFlowTime
+                self.link[ij].classCost = np.repeat(0,self.numClasses)
+                self.link[ij].classFlow = np.repeat(0,self.numClasses)
+                for c in range(self.numClasses):
+                    self.link[ij].classCost[c] = self.link[ij].length * \
+                        self.distanceFactor[c] + self.link[ij].toll * self.tollFactor[c]
 
         for OD in self.ODpair:
             self.ODpair[OD].leastCost = 0

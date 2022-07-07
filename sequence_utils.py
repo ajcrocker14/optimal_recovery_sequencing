@@ -148,7 +148,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     networkFileName = "current_net.tntp"
 
     if len(net.not_fixed) > 0:
-        df = pd.read_csv(networkFileName, delimiter='\t')
+        df = pd.read_csv(networkFileName, delimiter='\t', skipinitialspace=True)
 
         for a_link in net.not_fixed:
             home = a_link[a_link.find("'(") + 2:a_link.find(",")]
@@ -157,7 +157,11 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             try:
                 ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))].index.tolist()[0]
             except:
-                pdb.set_trace()
+                for col in df.columns:
+                    if pd.api.types.is_string_dtype(df[col]): # if cols contain str type, strip()
+                        df[col] = df[col].str.strip()
+                df = df.replace({"":np.nan}) # replace any empty strings with nan
+                ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))].index.tolist()[0]
 
             df.loc[ind, 'Unnamed: 3'] = 1e-10
             df.loc[ind, 'Unnamed: 5'] = 1e10
