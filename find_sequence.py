@@ -4,6 +4,7 @@ import operator as op
 from functools import reduce
 import itertools
 from prettytable import PrettyTable
+from prettytable import MSWORD_FRIENDLY
 import multiprocessing as mp
 from graphing import *
 import matplotlib.pyplot as plt
@@ -1653,7 +1654,6 @@ def preprocessing(damaged_links, net_after):
 def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
     """simple heuristic which orders links based on predamage flow"""
     start = time.time()
-    tap_solved = 0
 
     fname = net_before.save_dir + '/importance_factor_bound'
     if not os.path.exists(fname + extension):
@@ -1678,6 +1678,7 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
         elapsed = time.time() - start + time_net_before
         bound, eval_taps, _ = eval_sequence(
             if_net, path, after_eq_tstt, before_eq_tstt, if_dict, importance=True, damaged_dict=damaged_dict, num_crews=num_crews)
+        tap_solved = 1
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -2142,6 +2143,8 @@ if __name__ == '__main__':
         net_name = 'ChicagoSketch'
     if net_name == 'Berlin-Mitte-Center':
         net_name = 'berlin-mitte-center'
+    if net_name == 'Berlin-Mitte-Center2':
+        net_name = 'berlin-mitte-center2'
     JSONFILE = os.path.join(NETWORK, net_name.lower() + '.geojson')
     NETFILE = os.path.join(NETWORK, net_name + "_net.tntp")
 
@@ -2828,10 +2831,14 @@ if __name__ == '__main__':
                         t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
-                    t.add_row(['IMPORTANCE', importance_obj,
-                               importance_elapsed, importance_num_tap])
+                    t.add_row(['IMPORTANCE', importance_obj, importance_elapsed, importance_num_tap])
                     t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
+                    t.set_style(MSWORD_FRIENDLY)
                     print(t)
+
+                    fname = save_dir + '/results.csv'
+                    with open(fname, 'w', newline='') as f:
+                        f.write(t.get_csv_string(header=False))
 
                     print(swapped_links)
                     # pdb.set_trace()
@@ -3142,6 +3149,7 @@ if __name__ == '__main__':
                 t.add_row(['IMPORTANCE', importance_obj,
                            importance_elapsed, importance_num_tap])
                 t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
+                t.set_style(MSWORD_FRIENDLY)
                 print(t)
 
                 print(swapped_links)
@@ -3425,6 +3433,7 @@ if __name__ == '__main__':
                 t.add_row(['IMPORTANCE', importance_obj,
                            importance_elapsed, importance_num_tap])
                 t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
+                t.set_style(MSWORD_FRIENDLY)
                 print(t)
 
                 print('PATHS')
