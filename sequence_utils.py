@@ -218,33 +218,13 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     return tstt
 
 
-def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None):
-    tap_solved = 0
-    days_list = []
-    tstt_list = []
-    fp = None
-    seq_list = []
-
-    if importance:
-        fp = []
-        firstfp = 1
-        for link_id in order_list:
-            firstfp -= if_list[link_id]
-        fp.append(firstfp * 100)
-        curfp = firstfp
-
-    # T = 0
-    # for link_id in order_list:
-    #     T += damaged_dict[link_id]
-
-    level = 0
-    prev_linkid = None
-    tstt_before = after_eq_tstt
-
-    to_visit = order_list
-    added = []
+def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
+    """takes in the order in which projects start, the damaged dict, and the
+    number of crews, and returns the order in which projects finish, which crew
+    completes each project in that ordered list, and the days list"""
     if num_crews == 1:
         crew_order_list = order_list
+        which_crew = None
     else:
         crew_order_list = []
         crews = [0]*num_crews
@@ -267,12 +247,13 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
                 if crews[which_crew[link]] == max(crews):
                     crew_order_list.append(link)
                 else:
-                    crew_order_list.insert(len(crew_order_list) - num_crews + sorted(crews).index(crews[which_crew[link]]) + 1 ,link)
+                    crew_order_list.insert(len(crew_order_list) - num_crews +
+                        sorted(crews).index(crews[which_crew[link]]) + 1 ,link)
 
+    days_list = []
     crews = [0]*num_crews
     total_days = 0
     for link_id in crew_order_list:
-        level += 1
         if num_crews == 1:
             days_list.append(damaged_dict[link_id])
         else:
@@ -280,6 +261,32 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             days_list.append(crews[which_crew[link_id]] - total_days)
             total_days = max(crews)
 
+    return crew_order_list, which_crew, days_list
+
+
+def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None):
+    """evaluates the total tstt for a repair sequence, does not write to memory"""
+    tap_solved = 0
+    days_list = []
+    tstt_list = []
+    fp = None
+
+    if importance:
+        fp = []
+        firstfp = 1
+        for link_id in order_list:
+            firstfp -= if_list[link_id]
+        fp.append(firstfp * 100)
+        curfp = firstfp
+
+    to_visit = order_list
+    added = []
+
+    ### crew order list is the order in which projects complete ###
+    crew_order_list, which_crew, days_list = gen_crew_order(
+        order_list, damaged_dict=damaged_dict, num_crews=num_crews)
+
+    for link_id in crew_order_list:
         added.append(link_id)
         not_fixed = set(to_visit).difference(set(added))
         net.not_fixed = set(not_fixed)
