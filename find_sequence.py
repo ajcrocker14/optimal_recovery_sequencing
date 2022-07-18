@@ -30,33 +30,28 @@ extension = '.pickle'
 parser = argparse.ArgumentParser(
     description='find an order for repairing bridges')
 parser.add_argument('-n', '--net_name', type=str, help='network name')
-parser.add_argument('-b', '--num_broken', type=int,
-                    help='number of broken bridges')
+parser.add_argument('-b', '--num_broken', type=int, help='number of broken bridges')
 parser.add_argument('-a', '--approx', type=bool,
                     help='approximation methods enabled - LAFO and LASR', default=False)
 parser.add_argument('-r', '--reps', type=int,
                     help='number of scenarios with the given parameters', default=5)
-parser.add_argument('-g', '--graphing', type=bool, 
-                    help='graphing mode', default=False)
-parser.add_argument('-l', '--loc', type=int,
-                    help='location based sampling', default=0)
-parser.add_argument('-o', '--scenario', type=str, 
-                    help='scenario file', default='scenario.csv')
-parser.add_argument('-t', '--strength', type=str, 
-                    help='strength of the earthquake')
-parser.add_argument('-y', '--onlybeforeafter', type=bool,
-                    help='to get before and after tstt', default=False)
-parser.add_argument('-f', '--full', type=bool,
-                    help='to use full algo not beam search', default=False)
-parser.add_argument('-s', '--beamsearch', help='use beam search for speed, in order to disable, enter -s without arguments', action='store_false')
-parser.add_argument('-j', '--random',
-                    help='generate scenarios randomly, in order to disable, enter -j without arguments', action='store_false')
-parser.add_argument('-c', '--gamma', type=int,
-                    help='hyperparameter to expand the search', default=128)
+parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
+parser.add_argument('-g', '--graphing', type=bool, help='graph solution quality vs runtime', default=False)
+parser.add_argument('-l', '--loc', type=int, help='location based sampling', default=0)
+parser.add_argument('-o', '--scenario', type=str, help='scenario file', default='scenario.csv')
+parser.add_argument('-e', '--strength', type=str, help='strength of the earthquake')
+parser.add_argument('-y', '--onlybeforeafter', type=bool, help='to get before and after tstt', default=False)
+parser.add_argument('-f', '--full', type=bool, help='to use full algo not beam search', default=False)
+parser.add_argument('-s', '--beamsearch', help='use beam search for speed, in order to disable, enter -s without arguments',
+                    action='store_false')
+parser.add_argument('-j', '--random', help='generate scenarios randomly, in order to disable, enter -j without arguments',
+                    action='store_false')
+parser.add_argument('-c', '--gamma', type=int, help='hyperparameter to expand the search', default=128)
 parser.add_argument('-v', '--beta', type=int,
                     help='hyperparameter that decides the frequency of purge', default=128)
 parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of work crews available', default=1)
-### when multiple values are given for num_crews, order is found based on first number, and postprocessing is performed to find OBJ for other crew numbers ###
+""" when multiple values are given for num_crews, order is found based on first number,
+and postprocessing is performed to find OBJ for other crew numbers """
 parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
 parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs', default=False)
 parser.add_argument('--damaged', type=str, help='set damaged_dict to known values to explore various parameters', default='')
@@ -601,6 +596,7 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
     """expand the search tree forwards"""
     fvals = [node.f for node in sum(open_list_f.values(),[])]
 
+    update_bfs = False
     minfind = np.argmin(fvals)
     minimum_ff_n = sum(open_list_f.values(),[])[minfind]
     current_node = minimum_ff_n
@@ -646,6 +642,7 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
             if cur_soln <= bfs.cost:
                 bfs.cost = cur_soln
                 bfs.path = cur_path
+                update_bfs = True
 
         if set(other_end.not_visited) == set(cur_visited):
             cur_soln = current_node.g + other_end.g
@@ -654,15 +651,16 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
 
                 bfs.cost = cur_soln
                 bfs.path = cur_path
+                update_bfs = True
 
     # Found the goal
     if current_node == end_node:
-        return open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child, uncommon_number, common_number
+        return open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child, uncommon_number, common_number, update_bfs
 
     if iter_num > 3*len(damaged_dict):
         if current_node.f > bfs.cost:
             print('Iter ' + str(iter_num) + ' current node ' + str(current_node) + ' is pruned.')
-            return open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child, uncommon_number, common_number
+            return open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child, uncommon_number, common_number, update_bfs
 
     # Generate children
     eligible_expansions = get_successors_f(current_node, iter_num)
@@ -715,6 +713,7 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
                 if child.g < bfs.cost:
                     bfs.cost = child.g
                     bfs.path = child.path
+                    update_bfs = True
 
         if child.lb == child.ub:
             continue
@@ -738,13 +737,14 @@ def expand_forward(start_node, end_node, minimum_ff_n, open_list_b, open_list_f,
         open_list_f[current_level].append(child)
         del child
 
-    return open_list_f, num_tap_solved, current_level, minimum_ff_n, tot_child, uncommon_number, common_number
+    return open_list_f, num_tap_solved, current_level, minimum_ff_n, tot_child, uncommon_number, common_number, update_bfs
 
 
 def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f, bfs, num_tap_solved, max_level_f, closed_list_f, closed_list_b, iter_num, front_to_end=False, uncommon_number=0, tot_child=0, common_number=0):
     """expand the search tree forwards"""
     fvals = [node.f for node in sum(open_list_b.values(),[])]
 
+    update_bfs = False
     minfind = np.argmin(fvals)
     minimum_bf_n = sum(open_list_b.values(),[])[minfind]
     current_node = minimum_bf_n
@@ -790,6 +790,7 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
                 bfs.cost = cur_soln
                 bfs.path = other_end.path + \
                     [str(lo_link)] + current_node.path[::-1]
+                update_bfs = True
 
         elif set(other_end.not_visited) == set(cur_visited):
             cur_soln = current_node.g + other_end.g
@@ -797,15 +798,16 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
                 bfs.cost = cur_soln
                 bfs.path = other_end.path + \
                     current_node.path[::-1]
+                update_bfs = True
 
     # Found the goal
     if current_node == start_node:
-        return open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child, uncommon_number, common_number
+        return open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child, uncommon_number, common_number, update_bfs
 
     if iter_num > 3*len(damaged_dict):
         if current_node.f > bfs.cost:
             print('Iter ' + str(iter_num) + ' current node ' + str(current_node) + ' is pruned.')
-            return open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child, uncommon_number, common_number
+            return open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child, uncommon_number, common_number, update_bfs
 
     # Generate children
     eligible_expansions = get_successors_b(current_node, iter_num)
@@ -857,6 +859,7 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
                 if child.g < bfs.cost:
                     bfs.cost = child.g
                     bfs.path = child.path[::-1]
+                    update_bfs = True
 
         if child.lb == child.ub:
             continue
@@ -879,7 +882,7 @@ def expand_backward(start_node, end_node, minimum_bf_n, open_list_b, open_list_f
         open_list_b[current_level].append(child)
         del child
 
-    return open_list_b, num_tap_solved, current_level, minimum_bf_n, tot_child, uncommon_number, common_number
+    return open_list_b, num_tap_solved, current_level, minimum_bf_n, tot_child, uncommon_number, common_number, update_bfs
 
 
 def purge(open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_list_f, closed_list_b, f_activated, b_activated, minimum_ff_n, minimum_bf_n, iter_num, beta=256, n_0=0.1):
@@ -1044,6 +1047,11 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
     len_f = len(sum(open_list_f.values(), []))
     len_b = len(sum(open_list_b.values(), []))
 
+    if graphing:
+        global bs_time_list
+        global bs_OBJ_list
+        bs_time_list.append(0)
+        bs_OBJ_list.append(deepcopy(bfs.cost))
     search_timer = time.time()
     while len_f > 0 or len_b > 0:
         iter_count += 1
@@ -1061,14 +1069,18 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                 search_direction = 'Forward'
 
         if search_direction == 'Forward':
-            open_list_f, num_tap_solved, level_f, minimum_ff_n, tot_child, uncommon_number, common_number = expand_forward(
+            open_list_f, num_tap_solved, level_f, minimum_ff_n, tot_child, uncommon_number, common_number, update_bfs = expand_forward(
                 start_node, end_node, minimum_ff_n, open_list_b, open_list_f, bfs, num_tap_solved, max_level_b, closed_list_f, closed_list_b, iter_count, front_to_end=False, uncommon_number=uncommon_number, tot_child=tot_child, common_number=common_number)
             max_level_f = max(max_level_f, level_f)
 
         else:
-            open_list_b, num_tap_solved, level_b, minimum_bf_n, tot_child, uncommon_number, common_number = expand_backward(
+            open_list_b, num_tap_solved, level_b, minimum_bf_n, tot_child, uncommon_number, common_number, update_bfs = expand_backward(
                 start_node, end_node, minimum_bf_n , open_list_b, open_list_f, bfs, num_tap_solved, max_level_f, closed_list_f, closed_list_b, iter_count, front_to_end=False, uncommon_number=uncommon_number, tot_child=tot_child, common_number=common_number)
             max_level_b = max(max_level_b, level_b)
+
+        if update_bfs and graphing:
+            bs_time_list.append(time.time() - search_timer)
+            bs_OBJ_list.append(deepcopy(bfs.cost))
 
         all_open_f = sum(open_list_f.values(), [])
         all_open_b = sum(open_list_b.values(), [])
@@ -1107,6 +1119,9 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
             print(f'search time elapsed: {(time.time() - search_timer)/60}')
             print(f'max_level_f: {max_level_f}, max_level_b: {max_level_b}')
             print('iteration: {}, best_found: {}'.format(iter_count, bfs.cost))
+            if graphing:
+                bs_time_list.append(time.time() - search_timer)
+                bs_OBJ_list.append(deepcopy(bfs.cost))
 
             global wb
             global bb
@@ -1280,6 +1295,9 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                     bfs.cost = bound
                     bfs.path = path
 
+            if graphing:
+                bs_time_list.append(time.time() - search_timer)
+                bs_OBJ_list.append(deepcopy(bfs.cost))
 
             seq_length = len(damaged_links)
             threshold_start = seq_length + int(seq_length**2/int(math.log(seq_length,2)))
@@ -1296,10 +1314,13 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                     open_list_b, open_list_f, num_purged, f_activated, b_activated, closed_list_f, closed_list_b = purge(
                     open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_list_f, closed_list_b, f_activated, b_activated, minimum_ff_n, minimum_bf_n, iter_count, beta=beta)
 
-
     #check in case something weird happened
     if len(bfs.path) != len(damaged_links):
         print('{} is not {}'.format('bestpath', 'full length'))
+
+    if graphing:
+        bs_time_list.append(time.time() - search_timer)
+        bs_OBJ_list.append(deepcopy(bfs.cost))
 
     return bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number, num_purged
 
@@ -1648,6 +1669,7 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
     """starts at bfs (greedy or importance) and conducts simulated annealling to find solution"""
     start = time.time()
     fname = net_after.save_dir + '/sim_anneal_solution'
+    num_runs = 1
 
     if not os.path.exists(fname + extension):
         print('Finding the simulated annealing solution ...')
@@ -1657,67 +1679,112 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
         curcost = deepcopy(bfs.cost)
         best_cost = deepcopy(bfs.cost)
         curnet = deepcopy(net_after)
+        if graphing:
+            global sa_time_list
+            global sa_OBJ_list
+            sa_time_list.append(0)
+            sa_OBJ_list.append(deepcopy(bfs.cost))
 
         global memory
         t = 0
         fail = 0
         ratio = 0
+        lastMvmt = 0
 
         if num_crews==1:
-            while t < 1.2 * len(current)**3:
-                t += 1
-                idx = random.randrange(0,len(current)-1)
-                nextord = deepcopy(current)
-                el = nextord.pop(idx)
-                swap = nextord[idx]
-                nextord.insert(idx+1,el)
-
-                #get tstt before fixing el or swap, then tstt if fixing each first to find difference in total area
-                startstate = current[:idx]
-                startTSTT, tap = eval_state(startstate, curnet, damaged_links, eval_seq=True)
-                tap_solved += tap
-
-                endstate = current[:idx+2]
-                endTSTT, tap = eval_state(endstate, curnet, damaged_links, eval_seq=True)
-                tap_solved += tap
-
-                elstate = current[:idx+1]
-                elTSTT, tap = eval_state(elstate, curnet, damaged_links, eval_seq=True)
-                tap_solved += tap
-
-                swapstate = nextord[:idx+1]
-                swapTSTT, tap = eval_state(swapstate, curnet, damaged_links, eval_seq=True)
-                tap_solved += tap
-
-                nextcost = deepcopy(curcost)
-                nextcost -= startTSTT*(damaged_dict[el]-damaged_dict[swap])
-                nextcost -= elTSTT*damaged_dict[swap]
-                nextcost += swapTSTT*damaged_dict[el]
-
-                negdelta = curcost - nextcost
-
-                if negdelta > 0:
-                    current = deepcopy(nextord)
-                    curcost = deepcopy(nextcost)
-                    #print('Iter ' +str(t) + ' positive movement')
-                    #print('MOVED TO NEW STATE ' + str(current) + ' on iteration ' + str(t))
-
+            for run in range(num_runs):
+                if num_runs > 1:
+                    print('Starting simulated annealing run number:', run+1)
+                    if run > 0:
+                        current = list(deepcopy(bfs.path))
+                        best_soln = list(deepcopy(bfs.path))
+                        curcost = deepcopy(bfs.cost)
+                        best_cost = deepcopy(bfs.cost)
+                        t = 0
+                        fail = 0
+                        ratio = 0
+                        lastMvmt = 0
+                    else:
+                        final_soln = deepcopy(best_soln)
+                        final_cost = deepcopy(best_cost)
                 else:
-                    prob = math.exp(negdelta/curcost*(t**(2/3)))
-                    if random.random() <= prob:
+                    final_soln = deepcopy(best_soln)
+                    final_cost = deepcopy(best_cost)
+
+                while t < 1.2 * len(current)**3:
+                    t += 1
+                    idx = random.randrange(0,len(current)-1)
+                    nextord = deepcopy(current)
+                    el = nextord.pop(idx)
+                    swap = nextord[idx]
+                    nextord.insert(idx+1,el)
+
+                    #get tstt before fixing el or swap, then tstt if fixing each first to find difference in total area
+                    startstate = current[:idx]
+                    startTSTT, tap = eval_state(startstate, curnet, damaged_links, eval_seq=True)
+                    tap_solved += tap
+
+                    endstate = current[:idx+2]
+                    endTSTT, tap = eval_state(endstate, curnet, damaged_links, eval_seq=True)
+                    tap_solved += tap
+
+                    elstate = current[:idx+1]
+                    elTSTT, tap = eval_state(elstate, curnet, damaged_links, eval_seq=True)
+                    tap_solved += tap
+
+                    swapstate = nextord[:idx+1]
+                    swapTSTT, tap = eval_state(swapstate, curnet, damaged_links, eval_seq=True)
+                    tap_solved += tap
+
+                    nextcost = deepcopy(curcost)
+                    nextcost -= startTSTT*(damaged_dict[el]-damaged_dict[swap])
+                    nextcost -= elTSTT*damaged_dict[swap]
+                    nextcost += swapTSTT*damaged_dict[el]
+
+                    negdelta = curcost - nextcost
+
+                    if negdelta > 0:
                         current = deepcopy(nextord)
                         curcost = deepcopy(nextcost)
+                        #print('Iter ' +str(t) + ' positive movement')
+                        #print('MOVED TO NEW STATE ' + str(current) + ' on iteration ' + str(t))
+
                     else:
-                        fail += 1
+                        prob = math.exp(negdelta/curcost*(t**(2/3)))
+                        if random.random() <= prob:
+                            current = deepcopy(nextord)
+                            curcost = deepcopy(nextcost)
+                        else:
+                            fail += 1
 
-                if curcost < best_cost:
-                    best_soln = deepcopy(current)
-                    best_cost = deepcopy(curcost)
-                    print('New best solution cost ' + str(best_cost) + ' with sequence ' + str(best_soln))
+                    if curcost < best_cost:
+                        best_soln = deepcopy(current)
+                        best_cost = deepcopy(curcost)
+                        if run == 0 and graphing:
+                            sa_time_list.append(time.time()-start)
+                            sa_OBJ_list.append(deepcopy(best_cost))
+                        lastMvmt = t
+                        print('On iteration {}, new best solution cost {} with sequence {}'.format(t,best_cost,best_soln))
 
-                ratio = fail/t
-                if t % 128 == 0:
-                    print('Iteration ' + str(t) + ', ratio ' + str(ratio))
+                    ratio = fail/t
+                    #if t % 128 == 0:
+                    #    print('Iteration ' + str(t) + ', ratio ' + str(ratio))
+                    if run > 0 and t >= 1.2 * len(current)**2.5:
+                        print('Finished run {} on iteration {} with ratio {} with best solution found on iteration {}'.format(run+1,t,ratio,lastMvmt))
+                        if run != num_runs-1:
+                            if best_cost < final_cost:
+                                final_soln = deepcopy(best_soln)
+                                final_cost = deepcopy(best_cost)
+                        else:
+                            if best_cost > final_cost:
+                                best_soln = deepcopy(final_soln)
+                                best_cost = deepcopy(final_cost)
+                        break
+                if run == 0:
+                    print('Finished on iteration {} with ratio {} with best solution found on iteration {}'.format(t,ratio,lastMvmt))
+                    if best_cost < final_cost:
+                        final_soln = deepcopy(best_soln)
+                        final_cost = deepcopy(best_cost)
 
         else:
             while t < 1.2 * len(current)**3:
@@ -1750,16 +1817,23 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                 if curcost < best_cost:
                     best_soln = deepcopy(current)
                     best_cost = deepcopy(curcost)
+                    if run == 0 and graphing:
+                        sa_time_list.append(time.time()-start)
+                        sa_OBJ_list.append(deepcopy(best_cost))
+                    lastMvmt = t
                     print('New best solution cost ' + str(best_cost) + ' with sequence ' + str(best_soln))
 
                 ratio = fail/t
                 if t % 128 == 0:
-                    print('Iteration ' + str(t) + ', ratio ' + str(ratio))        
+                    print('Iteration ' + str(t) + ', ratio ' + str(ratio))
+            print('Finished on iteration {} with ratio {} with best solution found on iteration {}'.format(t,ratio,lastMvmt))
 
-        print('Finished on iteration ' + str(t) + ' and ratio ' + str(ratio))
         elapsed = time.time() - start
         path = best_soln
         bound = best_cost
+        if graphing:
+            sa_time_list.append(elapsed)
+            sa_OBJ_list.append(deepcopy(best_cost))
 
         test2, _, _ = eval_sequence(curnet, best_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
@@ -2342,6 +2416,49 @@ def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
 
     save_fig(save_dir, 'map', tight_layout=True)
 
+
+def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None, sa_OBJ_list=None):
+    """function to plot running time vs OBJ progression"""
+
+    fig, ax = plt.subplots(figsize = (8,6))
+    jet = cm.get_cmap('jet', reps)
+    if bs_time_list != None:
+        bs_indices = [i for i, time in enumerate(bs_time_list) if time == 0]
+        bs_indices.append(len(bs_time_list))
+        if num_broken < 16:
+            for rep in range(reps):
+                plt.step(bs_time_list[bs_indices[rep]:bs_indices[rep+1]],
+                   (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],bs_OBJ_list[bs_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), label = 'beam search '+str(rep+1))
+        else:
+            for rep in range(reps):
+                plt.step(np.divide(bs_time_list[bs_indices[rep]:bs_indices[rep+1]],60),
+                   (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],bs_OBJ_list[bs_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), label = 'beam search '+str(rep+1))
+    if sa_time_list != None:
+        sa_indices = [i for i, time in enumerate(sa_time_list) if time == 0]
+        sa_indices.append(len(sa_time_list))
+        if num_broken < 16:
+            for rep in range(reps):
+                plt.step(sa_time_list[sa_indices[rep]:sa_indices[rep+1]],
+                    (1-np.divide(sa_OBJ_list[sa_indices[rep]:sa_indices[rep+1]],sa_OBJ_list[sa_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), linestyle='dashed', label = 'sim anneal '+str(rep+1))
+        else:
+            for rep in range(reps):
+                plt.step(np.divide(sa_time_list[sa_indices[rep]:sa_indices[rep+1]],60),
+                    (1-np.divide(sa_OBJ_list[sa_indices[rep]:sa_indices[rep+1]],sa_OBJ_list[sa_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), linestyle='dashed', label = 'sim anneal '+str(rep+1))
+    if num_broken < 16:
+        plt.title('Runtime (seconds) vs OBJ function improvement (%) for ' + NETWORK.split('/')[-1] +
+            ' with ' + str(len(damaged_links)) + ' damaged links', fontsize=10)
+    else:
+        plt.title('Runtime (minutes) vs OBJ function improvement (%) for ' + NETWORK.split('/')[-1] +
+            ' with ' + str(len(damaged_links)) + ' damaged links', fontsize=10)
+    plt.legend(ncol=2)
+
+    save_fig(save_dir, 'timevsOBJ', tight_layout=True)
+
+
 if __name__ == '__main__':
 
     net_name = args.net_name
@@ -2360,6 +2477,7 @@ if __name__ == '__main__':
     else:
         num_crews = int(args.num_crews[0])
         alt_crews = list(args.num_crews[1:])
+    tables = args.tables
     graphing = args.graphing
     scenario_file = args.scenario
     before_after = args.onlybeforeafter
@@ -2370,7 +2488,8 @@ if __name__ == '__main__':
     opt = args.opt
     sa = args.sa
     damaged_dict_preset = args.damaged
-    print(damaged_dict_preset)
+    if damaged_dict_preset != '':
+        print(damaged_dict_preset)
 
     NETWORK = os.path.join(FOLDER, net_name)
     if net_name == 'Chicago-Sketch':
@@ -2405,16 +2524,28 @@ if __name__ == '__main__':
     os.makedirs(NETWORK_DIR, exist_ok=True)
 
 
-    if graphing:
+    if tables:
         get_common_numbers()
         get_tables(NETWORK_DIR)
     else:
+        if graphing:
+            if beam_search:
+                bs_time_list = list()
+                bs_OBJ_list = list()
+            else:
+                bs_time_list = None
+                bs_OBJ_list = None
+            if sa:
+                sa_time_list = list()
+                sa_OBJ_list = list()
+            else:
+                sa_time_list = None
+                sa_OBJ_list = None
         global approx_params
         approx_params = None
         if rand_gen and damaged_dict_preset=='':
-
             for rep in range(reps):
-                print(num_broken)
+                #print(num_broken)
                 memory = {}
 
                 net = create_network(NETFILE, TRIPFILE)
@@ -2728,7 +2859,7 @@ if __name__ == '__main__':
                     else:
                         damaged_dict[lnk] = np.random.gamma(6, 7, 1)[0]
 
-                print(f'experiment number: {rep}')
+                print(f'experiment number: {rep+1}')
 
                 SCENARIO_DIR = NETWORK_DIR
                 ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
@@ -2898,6 +3029,8 @@ if __name__ == '__main__':
                     if opt:
                         opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
                             net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+                        opt_elapsed += greedy_elapsed
+                        opt_num_tap += greedy_num_tap + len(damaged_links) - 1
                         print('optimal obj with {} crew(s): {}, optimal path: {}'.format(num_crews, opt_obj, opt_soln))
                         if alt_crews != None:
                             opt_obj_mult = [0]*(len(alt_crews)+1)
@@ -2910,6 +3043,8 @@ if __name__ == '__main__':
                                 memory = deepcopy(memory1)
                                 opt_obj_mult[num+1], opt_soln_mult[num+1], opt_elapsed_mult[num+1], opt_num_tap = brute_force(
                                     net_after, after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                                opt_elapsed_mult[num+1] += greedy_elapsed
+                                opt_num_tap += greedy_num_tap + len(damaged_links) - 1
                                 print('optimal obj with {} crew(s): {}, optimal path: {}'.format(alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
 
                     best_benefit_taps = num_damaged
@@ -2921,7 +3056,7 @@ if __name__ == '__main__':
                     ### Get simulated annealing solution ###
                     if sa:
                         sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
-                        bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews)
+                            bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews)
                         sa_elapsed += greedy_elapsed + importance_elapsed
                         sa_num_tap += greedy_num_tap
                         if alt_crews == None:
@@ -2989,13 +3124,14 @@ if __name__ == '__main__':
                     ### Use beamsearch algorithm to find solution ###
                     if beam_search:
 
-                        ks = [2]
+                        runs = ['normal'] # sa_seed must be run first because of memory from sa
 
-                        for k in ks:
+                        for run in runs:
 
                             # betas = [64, 128, 256, 512]
                             # gammas = [32, 64, 128]
 
+                            k = 2
                             betas = [128]
                             gammas = [128]
 
@@ -3014,8 +3150,9 @@ if __name__ == '__main__':
                                 fname = save_dir + '/r_algo_solution' + '_k' + str(k)
                                 ext_name = 'r_k' + str(k)
 
-                                del memory
-                                memory = deepcopy(memory1)
+                                if run != 'sa_seed':
+                                    del memory
+                                    memory = deepcopy(memory1)
 
                                 wb = wb_orig
                                 bb = bb_orig
@@ -3029,8 +3166,15 @@ if __name__ == '__main__':
                                 else:
                                     bfs.cost = importance_obj
                                     bfs.path = importance_soln
+                                if run == 'sa_seed':
+                                    if sa_obj < bfs.cost:
+                                        bfs.cost = sa_obj
+                                        bfs.path = sa_soln
 
-                                r_algo_num_tap = best_benefit_taps + worst_benefit_taps + greedy_num_tap
+                                if run == 'sa_seed':
+                                    sa_r_algo_num_tap = sa_num_tap
+                                else:
+                                    r_algo_num_tap = worst_benefit_taps - 1 + greedy_num_tap
 
                                 start_node.relax = True
                                 end_node.relax = True
@@ -3042,6 +3186,10 @@ if __name__ == '__main__':
                                     start_node, end_node, bfs, beam_search=beam_search, beam_k=k, beta=beta, gamma=gamma)
                                 search_elapsed = time.time() - search_start
 
+                                if graphing:
+                                    bs_time_list.append(search_elapsed)
+                                    bs_OBJ_list.append(r_algo_obj)
+
                                 net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
                                 net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
 
@@ -3050,17 +3198,43 @@ if __name__ == '__main__':
                                 r_algo_obj, _, _ = eval_sequence(
                                     first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
 
-                                r_algo_num_tap += r_search_tap_solved
-                                r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
+                                if run == 'sa_seed':
+                                    sa_r_algo_num_tap += r_search_tap_solved
+                                    sa_r_algo_elapsed = search_elapsed + sa_elapsed
+                                    sa_r_algo_obj = deepcopy(r_algo_obj)
+                                    sa_r_algo_path = deepcopy(r_algo_path)
+                                    save(fname + '_obj_sa', sa_r_algo_obj)
+                                    save(fname + '_path_sa', sa_r_algo_path)
+                                    save(fname + '_num_tap_sa', sa_r_algo_num_tap)
+                                    save(fname + '_elapsed_sa', sa_r_algo_elapsed)
+                                    save(fname + '_totchild_sa', tot_childr)
+                                    save(fname + '_uncommon_sa', uncommon_numberr)
+                                    save(fname + '_common_sa', common_numberr)
+                                    save(fname + '_num_purge_sa', num_purger)
 
-                                save(fname + '_obj', r_algo_obj)
-                                save(fname + '_path', r_algo_path)
-                                save(fname + '_num_tap', r_algo_num_tap)
-                                save(fname + '_elapsed', r_algo_elapsed)
-                                save(fname + '_totchild', tot_childr)
-                                save(fname + '_uncommon', uncommon_numberr)
-                                save(fname + '_common', common_numberr)
-                                save(fname + '_num_purge', num_purger)
+                                    print(f'beam_search k: {k}, relaxed: True, type of run {run}')
+                                    if alt_crews == None:
+                                        print('sa seeded beam search obj: ', sa_r_algo_obj)
+                                    else:
+                                        sa_r_algo_obj_mult = [0]*(len(alt_crews)+1)
+                                        sa_r_algo_obj_mult[0] = sa_r_algo_obj
+                                        for num in range(len(alt_crews)):
+                                            test_net = deepcopy(net_after)
+                                            sa_r_algo_obj_mult[num+1], _, _ = eval_sequence(
+                                                test_net, sa_r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                                        print('beam search obj: ', sa_r_algo_obj_mult)
+
+                                else:
+                                    r_algo_num_tap += r_search_tap_solved
+                                    r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
+                                    save(fname + '_obj', r_algo_obj)
+                                    save(fname + '_path', r_algo_path)
+                                    save(fname + '_num_tap', r_algo_num_tap)
+                                    save(fname + '_elapsed', r_algo_elapsed)
+                                    save(fname + '_totchild', tot_childr)
+                                    save(fname + '_uncommon', uncommon_numberr)
+                                    save(fname + '_common', common_numberr)
+                                    save(fname + '_num_purge', num_purger)
 
                                 # else:
                                 #     r_algo_obj = load(fname + '_obj')
@@ -3068,19 +3242,19 @@ if __name__ == '__main__':
                                 #     r_algo_num_tap = load(fname + '_num_tap')
                                 #     r_algo_elapsed = load(fname + '_elapsed')
 
-                                print(f'beam_search k: {k}, relaxed: True')
-                                if alt_crews == None:
-                                    print('beam search obj: ', r_algo_obj)
-                                else:
-                                    r_algo_obj_mult = [0]*(len(alt_crews)+1)
-                                    r_algo_obj_mult[0] = r_algo_obj
-                                    for num in range(len(alt_crews)):
-                                        test_net = deepcopy(net_after)
-                                        r_algo_obj_mult[num+1], _, _ = eval_sequence(
-                                            test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                                    print('beam search obj: ', r_algo_obj_mult)
+                                    print(f'beam_search k: {k}, relaxed: True, type of run {run}')
+                                    if alt_crews == None:
+                                        print('beam search obj: ', r_algo_obj)
+                                    else:
+                                        r_algo_obj_mult = [0]*(len(alt_crews)+1)
+                                        r_algo_obj_mult[0] = r_algo_obj
+                                        for num in range(len(alt_crews)):
+                                            test_net = deepcopy(net_after)
+                                            r_algo_obj_mult[num+1], _, _ = eval_sequence(
+                                                test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                                        print('beam search obj: ', r_algo_obj_mult)
 
-                                experiment_dict[a_pair] = [r_algo_obj, r_algo_num_tap, r_algo_elapsed]
+                                    experiment_dict[a_pair] = [r_algo_obj, r_algo_num_tap, r_algo_elapsed]
 
                             for k,v in experiment_dict.items():
                                 print('Gamma - Beta: {}, obj-tap-elapsed: {}'.format(k,v))
@@ -3158,6 +3332,10 @@ if __name__ == '__main__':
                             t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
                         if beam_search:
                             t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
+                            try:
+                                t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj, sa_r_algo_elapsed, sa_r_algo_num_tap])
+                            except:
+                                pass
                         if sa:
                             t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
                         t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
@@ -3186,6 +3364,10 @@ if __name__ == '__main__':
                             t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
                         if beam_search:
                             t.add_row(['BeamSearch_relaxed', r_algo_obj_mult, r_algo_elapsed, r_algo_num_tap])
+                            try:
+                                t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj_mult, sa_r_algo_elapsed, sa_r_algo_num_tap])
+                            except:
+                                pass
                         if sa:
                             t.add_row(['Simulated Annealing', sa_obj_mult, sa_elapsed, sa_num_tap])
                         t.add_row(['GREEDY', greedy_obj_mult, greedy_elapsed, greedy_num_tap])
@@ -3214,12 +3396,20 @@ if __name__ == '__main__':
                         print('---------------------------')
                         print('approx-LASR: ', LASR_soln)
                         print('---------------------------')
+                    if opt:
+                        print('optimal by brute force: ', opt_soln)
+                        print('---------------------------')
                     if full:
                         print('algorithm: ', algo_path)
                         print('---------------------------')
                     if beam_search:
                         print('beamsearch: ', r_algo_path)
                         print('---------------------------')
+                        try:
+                            print('beamsearch with sa seed: ', sa_r_algo_path)
+                            print('---------------------------')
+                        except:
+                            pass
                     if sa:
                         print('simulated annealing: ', sa_soln)
                         print('---------------------------')
@@ -3229,6 +3419,8 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('shortest processing time: ', SPT_soln)
 
+            if graphing:
+                plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
 
         elif damaged_dict_preset != '':
             damaged_dict = load(damaged_dict_preset + '/' + 'damaged_dict')

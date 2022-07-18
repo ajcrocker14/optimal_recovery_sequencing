@@ -10,6 +10,7 @@ __pycache__/
 # ignore text files - outputs of TAP solutions
 *.txt
 *.bin
+*.csv
 saved/
 tap-b_wu/
 .idea/
