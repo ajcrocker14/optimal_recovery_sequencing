@@ -1530,6 +1530,77 @@ def eval_state(state, after, damaged_links, eval_seq=False):
 
     return tstt_after, num_tap
 
+def simple_preprocess(damaged_links, net_after):
+    """uses sampling as described in Rey et al. 2019 to find approximated average first-order effects"""
+    samples = []
+    X_train = []
+    y_train = []
+    Z_train = [0]*len(damaged_links)
+    for i in range(len(damaged_links)):
+        Z_train[i] = []
+
+    preprocessing_num_tap = 0
+    damaged_links = [i for i in damaged_links]
+
+    for k, v in memory.items():
+        pattern = np.ones(len(damaged_links))
+        state = [damaged_links.index(i) for i in k]
+        pattern[(state)] = 0
+        X_train.append(pattern)
+        y_train.append(v)
+        preprocessing_num_tap += 1
+
+    ns = 1
+    card_P = len(damaged_links)
+    denom = 2 ** card_P
+
+    # a value of 1 means the link has already been repaired in that state
+    for i in range(card_P):
+        nom = ns * comb(card_P, i)
+        num_to_sample = math.ceil(nom / denom)
+
+        for j in range(num_to_sample):
+            pattern = np.zeros(len(damaged_links))
+            temp_state = random.sample(damaged_links, i)
+            state = [damaged_links.index(i) for i in temp_state]
+            pattern[(state)] = 1
+
+            if any((pattern is test) or (pattern == test).all() for test in X_train):
+                pass
+
+            else:
+                TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                preprocessing_num_tap += tap
+                X_train.append(pattern)
+                y_train.append(TSTT)
+
+                for el in range(len(pattern)):
+                    new_pattern = np.zeros(len(damaged_links))
+                    new_state = deepcopy(temp_state)
+
+                    if pattern[el] == 1:
+                        new_state.remove(damaged_links[el])
+                    else:
+                        new_state.append(damaged_links[el])
+                    state = [damaged_links.index(i) for i in new_state]
+                    new_pattern[(state)] = 1
+
+                    if any((new_pattern is test) or (new_pattern == test).all() for test in X_train):
+                        pass
+                    else:
+                        new_TSTT, tap = eval_state(new_state, net_after, damaged_links, eval_seq=True)
+                        preprocessing_num_tap += tap
+                        X_train.append(new_pattern)
+                        y_train.append(new_TSTT)
+                        Z_train[el].append(abs(new_TSTT - TSTT))
+
+    Z_bar = np.zeros(len(damaged_links))
+    for i in range(len(damaged_links)):
+        Z_bar[i] = np.mean(Z_train[i])
+    print(Z_bar)
+
+    return Z_bar, preprocessing_num_tap
+
 def preprocessing(damaged_links, net_after):
     """trains a TensorFlow model to predict tstt from the binary repair state"""
     samples = []
@@ -1548,6 +1619,7 @@ def preprocessing(damaged_links, net_after):
         pattern[(state)] = 0
         X_train.append(pattern)
         y_train.append(v)
+        preprocessing_num_tap += 1
 
     ns = 1
     card_P = len(damaged_links)
@@ -1617,7 +1689,6 @@ def preprocessing(damaged_links, net_after):
 
     X_train_full = np.array(X_train)
     y_train_full = np.array(y_train)
-
 
     meany = np.mean(y_train_full)
     stdy = np.std(y_train_full)
@@ -1815,13 +1886,17 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                         fail += 1
 
                 if curcost < best_cost:
-                    best_soln = deepcopy(current)
-                    best_cost = deepcopy(curcost)
-                    if run == 0 and graphing:
-                        sa_time_list.append(time.time()-start)
-                        sa_OBJ_list.append(deepcopy(best_cost))
-                    lastMvmt = t
-                    print('New best solution cost ' + str(best_cost) + ' with sequence ' + str(best_soln))
+                    test1, _, _ = eval_sequence(curnet, current, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                    if best_cost < test1:
+                        print('inaccuracy in new best soln ' + str(test1-curcost) + ' test1= ' + str(test1) + ' curcost= ' + str(curcost) + '. Do not use.')
+                    else:
+                        best_soln = deepcopy(current)
+                        best_cost = deepcopy(curcost)
+                        if graphing:
+                            sa_time_list.append(time.time()-start)
+                            sa_OBJ_list.append(deepcopy(best_cost))
+                        lastMvmt = t
+                        print('New best solution cost ' + str(best_cost) + ' with sequence ' + str(best_soln))
 
                 ratio = fail/t
                 if t % 128 == 0:
@@ -1839,6 +1914,7 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
 
         if abs(test2-bound)> 5:
             print('inaccuracy in best soln ' + str(test2-bound) + ' test2= ' + str(test2) + ' bound= ' + str(bound))
+        bound = test2
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -1873,6 +1949,7 @@ def LAFO(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar):
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
         save(fname + '_num_tap', 0)
     else:
 
@@ -2904,9 +2981,12 @@ if __name__ == '__main__':
 
                     ### approx solution methods ###
                     if approx:
+                        memory1 = deepcopy(memory)
+
                         preprocess_st = time.time()
-                        model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
-                        approx_params = (model, meany, stdy)
+                        #model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
+                        #approx_params = (model, meany, stdy)
+                        Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
                         preprocess_elapsed = time.time() - preprocess_st
                         time_before = preprocess_elapsed + time_net_before
 
@@ -2943,6 +3023,7 @@ if __name__ == '__main__':
                         # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
                         # approx_num_tap += preprocessing_num_tap
                         # print('approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
+                        memory = deepcopy(memory1)
 
                     ### Shortest processing time solution ###
                     SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
@@ -3039,12 +3120,14 @@ if __name__ == '__main__':
                             opt_soln_mult[0] = opt_soln
                             opt_elapsed_mult = [0]*(len(alt_crews)+1)
                             opt_elapsed_mult[0] = opt_elapsed
+                            opt_num_tap_mult = [0]*(len(alt_crews)+1)
+                            opt_num_tap_mult[0] = opt_num_tap
                             for num in range(len(alt_crews)):
                                 memory = deepcopy(memory1)
-                                opt_obj_mult[num+1], opt_soln_mult[num+1], opt_elapsed_mult[num+1], opt_num_tap = brute_force(
+                                opt_obj_mult[num+1], opt_soln_mult[num+1], opt_elapsed_mult[num+1], opt_num_tap_mult[num+1] = brute_force(
                                     net_after, after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
                                 opt_elapsed_mult[num+1] += greedy_elapsed
-                                opt_num_tap += greedy_num_tap + len(damaged_links) - 1
+                                opt_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 1
                                 print('optimal obj with {} crew(s): {}, optimal path: {}'.format(alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
 
                     best_benefit_taps = num_damaged
@@ -3138,11 +3221,9 @@ if __name__ == '__main__':
                             beta_gamma = list(itertools.product(gammas, betas))
 
                             experiment_dict = {}
-                            # for gamma in gammas:
                             for a_pair in beta_gamma:
                                 gamma = a_pair[0]
                                 beta = a_pair[1]
-                                # a_pair = gamma
 
                                 # beamsearch with gap 1e-4
                                 print('===', gamma, beta , '===')
@@ -3415,6 +3496,8 @@ if __name__ == '__main__':
                         print('---------------------------')
                     print('greedy: ', greedy_soln)
                     print('---------------------------')
+                    print('lazy_greedy: ', lg_soln)
+                    print('---------------------------')
                     print('importance factors: ', importance_soln)
                     print('---------------------------')
                     print('shortest processing time: ', SPT_soln)
@@ -3464,9 +3547,12 @@ if __name__ == '__main__':
 
                 ### approx solution methods ###
                 if approx:
+                    memory1 = deepcopy(memory)
+
                     preprocess_st = time.time()
-                    model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
-                    approx_params = (model, meany, stdy)
+                    #model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
+                    #approx_params = (model, meany, stdy)
+                    Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
                     preprocess_elapsed = time.time() - preprocess_st
                     time_before = preprocess_elapsed + time_net_before
 
@@ -3485,7 +3571,7 @@ if __name__ == '__main__':
                     # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
                     # approx_num_tap += preprocessing_num_tap
                     # print('approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
-
+                    memory = deepcopy(memory1)
 
                 ### Shortest processing time solution ###
                 SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
@@ -3502,8 +3588,12 @@ if __name__ == '__main__':
 
 
                 ### Get greedy solution ###
-                greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
-                    net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after)
+                if num_crews == 1:
+                    greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
+                        net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after)
+                else:
+                    greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic_mult(
+                        net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, num_crews)
                 print('greedy_obj: ', greedy_obj)
 
                 bfs = BestSoln()
@@ -3531,8 +3621,9 @@ if __name__ == '__main__':
                 if opt:
                     opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
                         net_after, after_eq_tstt, before_eq_tstt)
-
-                    print('optimal obj: {}, optimal path: {}'.format(opt_obj, opt_soln))
+                    opt_elapsed += greedy_elapsed
+                    opt_num_tap += greedy_num_tap + len(damaged_links) - 1
+                    print('optimal obj with {} crew(s): {}, optimal path: {}'.format(num_crews, opt_obj, opt_soln))
 
                 best_benefit_taps = num_damaged
                 worst_benefit_taps = num_damaged
@@ -3543,7 +3634,7 @@ if __name__ == '__main__':
                 ### Get simulated annealing solution ###
                 if sa:
                     sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
-                    bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links)
+                    bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews)
                     sa_elapsed += greedy_elapsed + importance_elapsed
                     sa_num_tap += greedy_num_tap
 
@@ -3634,7 +3725,7 @@ if __name__ == '__main__':
                                 bfs.cost = importance_obj
                                 bfs.path = importance_soln
 
-                            r_algo_num_tap = best_benefit_taps + worst_benefit_taps + greedy_num_tap
+                            r_algo_num_tap = worst_benefit_taps - 1 + greedy_num_tap
 
                             start_node.relax = True
                             end_node.relax = True
@@ -3703,6 +3794,10 @@ if __name__ == '__main__':
                 t.set_style(MSWORD_FRIENDLY)
                 print(t)
 
+                fname = save_dir + '/results.csv'
+                with open(fname, 'w', newline='') as f:
+                    f.write(t.get_csv_string(header=False))
+
                 print(swapped_links)
                 # pdb.set_trace()
 
@@ -3728,6 +3823,8 @@ if __name__ == '__main__':
                     print('simulated annealing: ', sa_soln)
                     print('---------------------------')
                 print('greedy: ', greedy_soln)
+                print('---------------------------')
+                print('lazy_greedy: ', lg_soln)
                 print('---------------------------')
                 print('importance factors: ', importance_soln)
                 print('---------------------------')
