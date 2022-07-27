@@ -66,6 +66,66 @@ def read_scenario(fname='ScenarioAnalysis.xlsx', sname='Moderate_1'):
     return damage_dict
 
 
+def findClassTSTT(net, args):
+    try_again = False
+    f = "full_log.txt"
+    file_created = False
+    while not file_created:
+        if os.path.exists(f):
+            file_created = True
+
+        if file_created:
+            with open(f, "r") as log_file:
+                last_line = log_file.readlines()[-1]
+                if last_line.find('TSTT:') >= 0:
+                    obj = last_line[last_line.find('TSTT:') + 5:].strip()
+                    try:
+                        tstt = float(obj)
+                    except:
+                        try_again = True
+                else:
+                    try_again = True
+
+            idx_wanted = None
+            if try_again:
+                with open(f, "r") as log_file:
+                    lines = log_file.readlines()
+                    for idx, line in enumerate(lines):
+                        if line[:4] == 'next':
+                            idx_wanted = idx-1
+                            break
+
+                    last_line = lines[idx_wanted]
+                    obj = last_line[last_line.find('TSTT:') + 5:].strip()
+                    try:
+                        tstt = float(obj)
+                    except:
+                        try_again = True
+
+            if type(net.tripfile) == list:
+                num_classes = len(net.tripfile)
+                classTSTT = [0]*num_classes
+                with open(f, "r") as log_file:
+                    temp = log_file.readlines()[-num_classes-1:]
+                for i in range(num_classes):
+                    active_line = temp[i]
+                    obj = active_line[active_line.find('TSTT:') + 5:].strip()
+                    try:
+                        classTSTT[i] = float(obj)
+                    except:
+                        print('error encountered in findClassTSTT for demand class {}', i+1)
+                        return tstt
+            else:
+                print('findClassTSTT function called with only one class of demand present')
+                return tstt
+
+            os.remove('full_log.txt')
+
+    os.remove('current_net.tntp')
+
+    return classTSTT
+
+
 def net_update(net, args, flows=False):
     if flows:
         f = "flows.txt"
@@ -110,10 +170,10 @@ def net_update(net, args, flows=False):
         if file_created:
             with open(f, "r") as log_file:
                 last_line = log_file.readlines()[-1]
-                if last_line.find('obj') >= 0:
-                    obj = last_line[last_line.find('obj') + 3:].strip()
+                if last_line.find('TSTT:') >= 0:
+                    obj = last_line[last_line.find('TSTT:') + 5:].strip()
                     try:
-                        tstt = float(obj[:obj.find(',')])
+                        tstt = float(obj)
                     except:
                         try_again = True
                 else:
@@ -129,9 +189,9 @@ def net_update(net, args, flows=False):
                             break
 
                     last_line = lines[idx_wanted]
-                    obj = last_line[last_line.find('obj') + 3:].strip()
+                    obj = last_line[last_line.find('TSTT:') + 5:].strip()
                     try:
-                        tstt = float(obj[:obj.find(',')])
+                        tstt = float(obj)
                     except:
                         try_again = True
 
@@ -142,7 +202,8 @@ def net_update(net, args, flows=False):
     return tstt
 
 
-def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=False):
+def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=False, multiClass=False):
+    """if multiClass=True, then finds TSTT for each class seperately"""
     # modify the net.txt file to send to c code
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
@@ -213,7 +274,11 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
     # print('tap elapsed: {}, wu: {}, eval_seq: {}, relax: {} '.format(elapsed, wu, eval_seq, relax))
-    tstt = net_update(net, args, flows)
+    if multiClass:
+        classTSTT = findClassTSTT(net, args)
+        return classTSTT
+    else:
+        tstt = net_update(net, args, flows)
 
     return tstt
 
@@ -264,8 +329,10 @@ def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
     return crew_order_list, which_crew, days_list
 
 
-def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None):
-    """evaluates the total tstt for a repair sequence, does not write to memory"""
+def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None, multiClass=False):
+    """evaluates the total tstt for a repair sequence, does not write to memory
+    if multiClass=True, then evaluates the total area for each class seperately
+    approx and multiClass cannot be active simultaneously"""
     tap_solved = 0
     days_list = []
     tstt_list = []
@@ -286,6 +353,12 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
     crew_order_list, which_crew, days_list = gen_crew_order(
         order_list, damaged_dict=damaged_dict, num_crews=num_crews)
 
+    if multiClass and type(net.tripfile) == list:
+        net.not_fixed = set(to_visit)
+        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+        net.not_fixed = set([])
+        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+
     for link_id in crew_order_list:
         added.append(link_id)
         not_fixed = set(to_visit).difference(set(added))
@@ -301,7 +374,7 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             tstt_after = tstt_after[0][0]
         else:
             tap_solved += 1
-            tstt_after = solve_UE(net=net, eval_seq=True)
+            tstt_after = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
 
         tstt_list.append(tstt_after)
 
@@ -309,14 +382,26 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             curfp += if_list[link_id]
             fp.append(curfp * 100)
 
-    tot_area = 0
-    for i in range(len(days_list)):
-        if i == 0:
-            tstt = after_eq_tstt
-        else:
-            tstt = tstt_list[i - 1]
+    if multiClass and type(net.tripfile) == list:
+        tot_area = [0]*len(net.tripfile)
+        for j in range(len(net.tripfile)):
+            for i in range(len(days_list)):
+                if i == 0:
+                    tstt = after_eq_tstt_mc[j]
+                else:
+                    tstt = tstt_list[i - 1][j]
 
-        tot_area += (tstt - before_eq_tstt) * days_list[i]
+                tot_area[j] += (tstt - before_eq_tstt_mc[j]) * days_list[i]
+
+    else:
+        tot_area = 0
+        for i in range(len(days_list)):
+            if i == 0:
+                tstt = after_eq_tstt
+            else:
+                tstt = tstt_list[i - 1]
+
+            tot_area += (tstt - before_eq_tstt) * days_list[i]
 
     return tot_area, tap_solved, tstt_list
 
