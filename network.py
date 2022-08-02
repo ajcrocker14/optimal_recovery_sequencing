@@ -236,8 +236,8 @@ class Network:
         iteration = 0
         while iteration < maxIterations:
             iteration += 1
-            gap = gapFunction()
-            print("Iteration %d: gap %f" % (iteration, gap))
+            gap = gapFunction(self)
+            #print("Iteration %d: gap %f" % (iteration, gap))
             if gap < targetGap:
                 break
             targetFlows = self.allOrNothing()

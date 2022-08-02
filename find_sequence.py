@@ -251,6 +251,7 @@ def expand_sequence_f(node, a_link, level):
     net = create_network(NETFILE, TRIPFILE)
 
     net.not_fixed = set(node.not_fixed).difference(set([a_link]))
+    net.art_links = artLinkDict
     global memory
 
     if frozenset(net.not_fixed) in memory.keys():
@@ -292,8 +293,8 @@ def expand_sequence_b(node, a_link, level):
     tstt_after = node.tstt_before
 
     net = create_network(NETFILE, TRIPFILE)
-
     net.not_fixed = node.not_fixed.union(set([a_link]))
+    net.art_links = artLinkDict
 
     global memory
     if frozenset(net.not_fixed) in memory.keys():
@@ -331,12 +332,13 @@ def check(fwd_node, bwd_node, relax):
     fwdnet = create_network(NETFILE, TRIPFILE)
 
     fwdnet.not_fixed = fwd_node.not_fixed
+    fwdnet.art_links = artLinkDict
 
     fwd_tstt = solve_UE(net=fwdnet, relax=relax)
 
     bwdnet = create_network(NETFILE, TRIPFILE)
-
     bwdnet.not_fixed = bwd_node.not_fixed
+    net.art_links = artLinkDict
 
     bwd_tstt = solve_UE(net=bwdnet, relax=relax)
 
@@ -1165,6 +1167,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
 
                 after_ = minimum_ff_n.tstt_after
                 test_net = create_network(NETFILE, TRIPFILE)
+                test_net.art_links = artLinkDict
                 path = minimum_ff_n.path.copy()
                 new_bb = {}
                 for i in range(len(remaining)):
@@ -1230,6 +1233,7 @@ def search(start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=T
                 eligible_to_add = list(deepcopy(remaining))
                 after_ = after_eq_tstt
                 test_net = create_network(NETFILE, TRIPFILE)
+                test_net.art_links = artLinkDict
 
                 decoy_dd = deepcopy(damaged_dict)
 
@@ -1410,6 +1414,7 @@ def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
         start = time.time()
         net_after = create_network(NETFILE, TRIPFILE)
         net_after.not_fixed = set(damaged_links)
+        net_after.art_links = artLinkDict
         after_eq_tstt = solve_UE(net=net_after, eval_seq=True, wu=False)
         global memory
         memory[frozenset(net_after.not_fixed)] = after_eq_tstt
@@ -1441,6 +1446,7 @@ def state_before(damaged_links, save_dir, relax=False, real=False, bsearch=False
         start = time.time()
         net_before = create_network(NETFILE, TRIPFILE)
         net_before.not_fixed = set([])
+        net_before.art_links = artLinkDict
 
         before_eq_tstt = solve_UE(net=net_before, eval_seq=True, wu=False, flows=True)
         global memory
@@ -2037,13 +2043,13 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
 
         tot_flow = 0
         if_net = deepcopy(net_before)
-        for ij in if_net.link:
-            tot_flow += if_net.link[ij]['flow']
+        for ij in if_net.linkDict:
+            tot_flow += if_net.linkDict[ij]['flow']
 
         damaged_links = damaged_dict.keys()
         if_dict = {}
         for link_id in damaged_links:
-            link_flow = if_net.link[link_id]['flow']
+            link_flow = if_net.linkDict[link_id]['flow']
             if_dict[link_id] = link_flow / tot_flow
 
         sorted_d = sorted(if_dict.items(), key=lambda x: x[1])
@@ -2171,11 +2177,13 @@ def lazy_greedy_heuristic():
     start = time.time()
     net_b = create_network(NETFILE, TRIPFILE)
     net_b.not_fixed = set([])
+    net_b.art_links = artLinkDict
     b_eq_tstt = solve_UE(net=net_b, eval_seq=True, flows=True)
 
     damaged_links = damaged_dict.keys()
     net_a = create_network(NETFILE, TRIPFILE)
     net_a.not_fixed = set(damaged_links)
+    net_a.art_links = artLinkDict
     a_eq_tstt = solve_UE(net=net_a, eval_seq=True)
 
     lzg_bb = {}
@@ -2440,6 +2448,81 @@ def greedy_heuristic_mult(net_after, after_eq_tstt, before_eq_tstt, time_net_bef
     return bound, path, elapsed, tap_solved
 
 
+def makeArtLinks():
+    """creates artificial links with travel time and length 10x before eq shortest path"""
+    start = time.time()
+    artNet = Network(NETFILE, TRIPFILE)
+    artNet.netfile = NETFILE
+    artNet.tripfile = TRIPFILE
+    artNet.not_fixed = set([])
+    artNet.art_links = {}
+
+    tstt = solve_UE(net=artNet, eval_seq=True, flows=True)
+
+    for ij in artNet.link:
+        artNet.link[ij].flow = artNet.linkDict[ij]['flow']
+        artNet.link[ij].cost = artNet.linkDict[ij]['cost']
+
+    art_links = {}
+    originList = []
+    backlink = {}
+    cost = {}
+    for od in artNet.ODpair.values():
+        if od.origin not in originList:
+            originList.append(od.origin)
+            backlink[od.origin], cost[od.origin] = artNet.shortestPath(od.origin)
+            if od.origin != od.destination:
+                ODID = str(od.origin) + '->' + str(od.destination)
+                art_links[ODID] = 10*cost[od.origin][od.destination]
+        else:
+            if od.origin != od.destination:
+                ODID = str(od.origin) + '->' + str(od.destination)
+                art_links[ODID] = 10*cost[od.origin][od.destination]
+
+    for ij in damaged_links:
+        artNet.link[ij].capacity = SMALL
+        artNet.link[ij].freeFlowTime = SEQ_INFINITY
+        artNet.link[ij].cost = SEQ_INFINITY
+
+    artNet.not_fixed = set(damaged_links)
+    artNet.art_links = {}
+    tstt = solve_UE(net=artNet, eval_seq=True, flows=True)
+
+    for ij in artNet.link:
+        artNet.link[ij].flow = artNet.linkDict[ij]['flow']
+        artNet.link[ij].cost = artNet.linkDict[ij]['cost']
+
+    originList = []
+    postbacklink = {}
+    postcost = {}
+    count = 0
+    for od in artNet.ODpair.values():
+        if od.origin not in originList:
+            originList.append(od.origin)
+            postbacklink[od.origin], postcost[od.origin] = artNet.shortestPath(od.origin)
+            if postcost[od.origin][od.destination] >= 99999:
+                count += 1
+            if od.origin != od.destination and postcost[od.origin][od.destination] < 10*cost[od.origin][od.destination]:
+                ODID = str(od.origin) + '->' + str(od.destination)
+                del art_links[ODID]
+        else:
+            if postcost[od.origin][od.destination] >= 99999:
+                count += 1
+            if od.origin != od.destination and postcost[od.origin][od.destination] < 10*cost[od.origin][od.destination]:
+                ODID = str(od.origin) + '->' + str(od.destination)
+                del art_links[ODID]
+    print('Created {} artificial links.'.format(len(art_links)))
+    if count > len(art_links):
+        print('There are {} more paths exceeding cost of 99999 than artificial links created'.format(count-len(art_links)))
+
+    artNet.art_links = art_links
+    tstt = solve_UE(net=artNet, eval_seq=True, flows=True)
+
+    elapsed = time.time()-start
+    print('Runtime to create artificial links: ',elapsed)
+    return art_links
+
+
 def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
     """function to map all links and nodes, highlighting damaged links"""
     xMax = max(coord_dict.values())[0]
@@ -2629,6 +2712,7 @@ if __name__ == '__main__':
 
                 net = create_network(NETFILE, TRIPFILE)
                 net.not_fixed = set([])
+                net.art_links = {}
                 solve_UE(net=net, wu=False, eval_seq=True)
 
                 f = "flows.txt"
@@ -2891,7 +2975,7 @@ if __name__ == '__main__':
 
                 print('damaged_links are created:', damaged_links)
                 damaged_dict = {}
-                net.link = {}
+                net.linkDict = {}
                 # pdb.set_trace()
 
                 with open(NETFILE, "r") as networkFile:
@@ -2917,22 +3001,22 @@ if __name__ == '__main__':
                         linkID = '(' + str(data[0]).strip() + \
                                  "," + str(data[1]).strip() + ')'
 
-                        net.link[linkID] = {}
-                        net.link[linkID]['length-cap'] = float(data[2]) * np.cbrt(float(data[3]))
+                        net.linkDict[linkID] = {}
+                        net.linkDict[linkID]['length-cap'] = float(data[2]) * np.cbrt(float(data[3]))
 
-                len_links = [net.link[lnk]['length-cap'] for lnk in damaged_links]
+                len_links = [net.linkDict[lnk]['length-cap'] for lnk in damaged_links]
 
                 for lnk in damaged_links:
-                    if net.link[lnk]['length-cap'] > np.quantile(len_links, 0.95):
+                    if net.linkDict[lnk]['length-cap'] > np.quantile(len_links, 0.95):
                         damaged_dict[lnk] = np.random.gamma(4*2, 7*2, 1)[0]
 
-                    elif net.link[lnk]['length-cap'] > np.quantile(len_links, 0.75):
+                    elif net.linkDict[lnk]['length-cap'] > np.quantile(len_links, 0.75):
                         damaged_dict[lnk] = np.random.gamma(7*np.sqrt(2), 7*np.sqrt(2), 1)[0]
 
-                    elif net.link[lnk]['length-cap'] > np.quantile(len_links, 0.5):
+                    elif net.linkDict[lnk]['length-cap'] > np.quantile(len_links, 0.5):
                         damaged_dict[lnk] = np.random.gamma(12, 7, 1)[0]
 
-                    elif net.link[lnk]['length-cap'] > np.quantile(len_links, 0.25):
+                    elif net.linkDict[lnk]['length-cap'] > np.quantile(len_links, 0.25):
                         damaged_dict[lnk] = np.random.gamma(10, 7, 1)[0]
 
                     else:
@@ -2975,11 +3059,11 @@ if __name__ == '__main__':
                     t.add_row([before_eq_tstt, after_eq_tstt])
                     print(t)
                 else:
+                    artLinkDict = makeArtLinks()
                     benefit_analysis_st = time.time()
                     wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
                     benefit_analysis_elapsed = time.time() - benefit_analysis_st
                     plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
-
 
                     ### approx solution methods ###
                     if approx:
@@ -3585,6 +3669,7 @@ if __name__ == '__main__':
                 print(t)
             else:
                 memory = {}
+                artLinkDict = makeArtLinks()
                 benefit_analysis_st = time.time()
                 wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
                 benefit_analysis_elapsed = time.time() - benefit_analysis_st
@@ -3986,10 +4071,9 @@ if __name__ == '__main__':
                 t.add_row([before_eq_tstt, after_eq_tstt])
                 print(t)
             else:
-
+                artLinkDict = makeArtLinks()
                 wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, benefit_analysis_st = get_wb(damaged_links, save_dir, approx, relax=False)
                 benefit_analysis_elapsed = time.time() - benefit_analysis_st
-
 
 
                 # approx solution

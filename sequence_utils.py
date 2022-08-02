@@ -13,6 +13,11 @@ import matplotlib.pyplot as plt
 import time
 import multiprocessing as mp
 
+SMALL = 1e-10
+SEQ_INFINITY = 1e+8
+ALPHA = 0.15
+BETA = 4.0
+
 class Network:
     def __init__(self, networkFile="", demandFile=""):
         """
@@ -138,7 +143,8 @@ def net_update(net, args, flows=False):
             if time.time()-st >10:
                 popen = subprocess.call(args, stdout=subprocess.DEVNULL)
 
-            net.link = {}
+            net.linkDict = {}
+            testTSTT = 0
             if file_created:
                 with open(f, "r") as flow_file:
                     for line in flow_file.readlines():
@@ -151,13 +157,13 @@ def net_update(net, args, flows=False):
                             flow = float(line[:line.find(' ')])
                             line = line[line.find(' '):].strip()
                             cost = float(line.strip())
-                            net.link[ij] = {}
+                            net.linkDict[ij] = {}
 
-                            net.link[ij]['flow'] = flow
-                            net.link[ij]['cost'] = cost
+                            net.linkDict[ij]['flow'] = flow
+                            net.linkDict[ij]['cost'] = cost
+                            testTSTT += flow*cost
                         except:
                             break
-
                 os.remove('flows.txt')
 
     try_again = False
@@ -208,9 +214,8 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
 
-    if len(net.not_fixed) > 0:
+    if len(net.not_fixed) > 0 or len(net.art_links) > 0:
         df = pd.read_csv(networkFileName, delimiter='\t', skipinitialspace=True)
-
         for a_link in net.not_fixed:
             home = a_link[a_link.find("'(") + 2:a_link.find(",")]
             to = a_link[a_link.find(",") + 1:]
@@ -224,12 +229,36 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
                 df = df.replace({"":np.nan}) # replace any empty strings with nan
                 ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))].index.tolist()[0]
 
-            df.loc[ind, 'Unnamed: 3'] = 1e-10
-            df.loc[ind, 'Unnamed: 5'] = 1e10
+            df.loc[ind, 'Unnamed: 3'] = SMALL
+            df.loc[ind, 'Unnamed: 5'] = SEQ_INFINITY
+
+        for link in net.art_links.keys():
+            df.loc[len(df.index)] = [np.nan,link[:link.find('-')], link[link.find('>')+1:], SEQ_INFINITY, net.art_links[link],
+                net.art_links[link], ALPHA, BETA, 0.0, 0.0, 1, ';']
+        if len(net.art_links) > 0:
+            if df.iloc[2,0].find('NUMBER OF LINKS') >= 0:
+                idx = 2
+            elif df.iloc[1,0].find('NUMBER OF LINKS') >= 0:
+                idx = 1
+            elif df.iloc[3,0].find('NUMBER OF LINKS') >= 0:
+                idx = 3
+            else:
+                idx = -1
+            if idx == -1:
+                print('cannot find NUMBER OF LINKS to update')
+            else:
+                temp = df.iloc[idx,0]
+                numLinks = temp[temp.find('> ')+1:]
+                numLinks.strip()
+                numLinks = int(numLinks)
+                numLinks += len(net.art_links)
+                temp = temp[:temp.find('> ')+2] + str(numLinks)
+                df.iloc[idx,0] = temp
 
         df.to_csv('current_net.tntp', index=False, sep="\t")
 
     f = 'current_net.tntp'
+
     file_created = False
     while not file_created:
         if os.path.exists(f):
@@ -408,7 +437,7 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
 
 def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, damaged_dict):
     _, _, tstt_list = eval_sequence(
-        deepcopy(net), path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict)
+        deepcopy(net), path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, multiClass=False)
 
     # tstt_list.insert(0, after_eq_tstt)
 

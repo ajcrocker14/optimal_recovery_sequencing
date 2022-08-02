@@ -1,7 +1,7 @@
 #!/bin/bash
-net_name="Berlin-Mitte-Center"
+net_name="SiouxFalls"
 echo $net_name
-broken=32
+broken=16
 reps=10
 
 cd saved/TransportationNetworks/$net_name
@@ -15,6 +15,6 @@ cd saved/TransportationNetworks/$net_name/$broken
 cat */results.csv > combinedResults.csv
 
 cd ~/optimal_recovery_sequencing/saved/TransportationNetworks/$net_name
-mv $broken/combinedResults.csv  approxResults$broken.csv
+mv $broken/combinedResults.csv  approx2Results$broken.csv
 
 cd ~/optimal_recovery_sequencing
