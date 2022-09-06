@@ -65,6 +65,8 @@ MAX_DAYS = 180
 MIN_DAYS = 21
 memory = {}
 
+CORES = min(mp.cpu_count(),4)
+
 class BestSoln():
     """A node class for bi-directional search for pathfinding"""
     def __init__(self):
@@ -2684,7 +2686,6 @@ if __name__ == '__main__':
 
     NETWORK_DIR = os.path.join(SAVED_DIR, NETWORK)
     os.makedirs(NETWORK_DIR, exist_ok=True)
-
 
     if tables:
         get_common_numbers()

@@ -144,7 +144,7 @@ def net_update(net, args, flows=False):
                 popen = subprocess.call(args, stdout=subprocess.DEVNULL)
 
             net.linkDict = {}
-            testTSTT = 0
+            tstt = 0
             if file_created:
                 with open(f, "r") as flow_file:
                     for line in flow_file.readlines():
@@ -161,7 +161,7 @@ def net_update(net, args, flows=False):
 
                             net.linkDict[ij]['flow'] = flow
                             net.linkDict[ij]['cost'] = cost
-                            testTSTT += flow*cost
+                            tstt += flow*cost
                         except:
                             break
                 os.remove('flows.txt')
@@ -210,7 +210,7 @@ def net_update(net, args, flows=False):
 
 def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=False, multiClass=False):
     """if multiClass=True, then finds TSTT for each class seperately"""
-    # modify the net.txt file to send to c code
+    # modify the net.txt file to send to c code and create parameters file
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
 
@@ -277,28 +277,63 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
         # print('non_wu')
 
     start = time.time()
-    cores = max(mp.cpu_count(),4)
+
     if type(net.tripfile) == list:
-        temp = ""
-        for item in net.tripfile:
-            temp = temp + item + " "
+        #temp = ""
+        #for item in net.tripfile:
+        #    temp = temp + item + " "
 
         if eval_seq:
-            args = shlex.split(folder_loc + "1e-7 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
+            #args = shlex.split(folder_loc + "1e-7 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(CORES))
+            prec = '1e-7'
         else:
             if relax:
-                args = shlex.split(folder_loc + "1e-4 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
+                #args = shlex.split(folder_loc + "1e-4 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(CORES))
+                prec = '1e-4'
             else:
-                args = shlex.split(folder_loc + "1e-6 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(cores))
+                #args = shlex.split(folder_loc + "1e-6 " + str(len(net.tripfile)) + " " +"current_net.tntp " + temp + str(CORES))
+                prec = '1e-6'
+        with open('current_params.txt','w') as f2:
+            f2.write('<NETWORK FILE> ')
+            f2.write('current_net.tntp')
+            f2.write('\n')
+            for item in net.tripfile:
+                f2.write('<TRIPS FILE> ')
+                f2.write(item)
+                f2.write('\n')
+            f2.write('<CONVERGENCE GAP> ')
+            f2.write(prec)
+            f2.write('\n')
+            f2.write('<NUMBER OF BATCHES> 2')
+            f2.write('\n')
+            f2.write('<NUMBER OF THREADS> ')
+            f2.write(str(CORES))
 
     else:
         if eval_seq:
-            args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " " + str(cores))
+            #args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " " + str(CORES))
+            prec = '1e-7'
         else:
             if relax:
-                args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile + " " + str(cores))
+                #args = shlex.split(folder_loc + "1e-4 1 " + "current_net.tntp " + net.tripfile + " " + str(CORES))
+                prec = '1e-4'
             else:
-                args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile + " " + str(cores))
+                #args = shlex.split(folder_loc + "1e-6 1 " + "current_net.tntp " + net.tripfile + " " + str(CORES))
+                prec = '1e-6'
+        with open('current_params.txt','w') as f2:
+            f2.write('<NETWORK FILE> ')
+            f2.write('current_net.tntp')
+            f2.write('\n')
+            f2.write('<TRIPS FILE> ')
+            f2.write(net.tripfile)
+            f2.write('\n')
+            f2.write('<CONVERGENCE GAP> ')
+            f2.write(prec)
+            f2.write('\n')
+            f2.write('<NUMBER OF THREADS> ')
+            f2.write(str(CORES))
+
+    args = shlex.split(folder_loc + "current_params.txt")
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
