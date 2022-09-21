@@ -18,6 +18,8 @@ SEQ_INFINITY = 1e+8
 ALPHA = 0.15
 BETA = 4.0
 
+CORES = min(mp.cpu_count(),4)
+
 class Network:
     def __init__(self, networkFile="", demandFile=""):
         """
@@ -304,10 +306,17 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('<CONVERGENCE GAP> ')
             f2.write(prec)
             f2.write('\n')
-            f2.write('<NUMBER OF BATCHES> 2')
+            f2.write('<NUMBER OF BATCHES> ')
+            f2.write(str(len(net.tripfile)))
             f2.write('\n')
             f2.write('<NUMBER OF THREADS> ')
             f2.write(str(CORES))
+            f2.write('\n')
+            f2.write('<FILE PATH> ')
+            f2.write('./')
+            f2.write('\n')
+            f2.write('<DATA PATH> ')
+            f2.write('./')
 
     else:
         if eval_seq:
@@ -332,6 +341,12 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('\n')
             f2.write('<NUMBER OF THREADS> ')
             f2.write(str(CORES))
+            f2.write('\n')
+            f2.write('<FILE PATH> ')
+            f2.write('./')
+            f2.write('\n')
+            f2.write('<DATA PATH> ')
+            f2.write('./')
 
     args = shlex.split(folder_loc + "current_params.txt")
 

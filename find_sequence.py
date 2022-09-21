@@ -2678,6 +2678,19 @@ if __name__ == '__main__':
                     print('Improper tripfile naming.')
                     raise utils.BadFileFormatException
                 break
+    if multiClass == True and damaged_dict_preset != '':
+        TRIPFILE = list()
+        i=1
+        while True:
+            if os.path.exists(os.path.join(NETWORK, net_name + "_trips" + str(i) + "a.tntp")):
+                TRIPFILE.append(os.path.join(NETWORK, net_name + "_trips" + str(i) + "a.tntp"))
+                i+=1
+            else:
+                if TRIPFILE == []:
+                    print('Improper tripfile naming.')
+                    raise utils.BadFileFormatException
+                print(TRIPFILE)
+                break
 
     SAVED_FOLDER_NAME = "saved"
     PROJECT_ROOT_DIR = "."
@@ -2706,8 +2719,28 @@ if __name__ == '__main__':
                 sa_OBJ_list = None
         global approx_params
         approx_params = None
-        if rand_gen and damaged_dict_preset=='':
-            for rep in range(reps):
+
+        for rep in range(reps):
+            if damaged_dict_preset != '':
+                damaged_dict = load(damaged_dict_preset + '/' + 'damaged_dict')
+
+                SCENARIO_DIR = NETWORK_DIR
+                ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
+
+                i = ord('a')
+                while True:
+                    try:
+                        ULT_SCENARIO_REP_DIR = damaged_dict_preset+chr(i)
+                        os.makedirs(ULT_SCENARIO_REP_DIR)
+                        break
+                    except FileExistsError:
+                        print(chr(i) + ' is already taken, trying ' + chr(i+1))
+                        i += 1
+                    if i > 121:
+                        break
+
+
+            elif rand_gen and damaged_dict_preset=='':
                 #print(num_broken)
                 memory = {}
 
@@ -2738,7 +2771,6 @@ if __name__ == '__main__':
                                     flow = float(line[:line.find(' ')])
                                     line = line[line.find(' '):].strip()
                                     cost = float(line.strip())
-
 
                                     if cost != 99999.0:
                                         netflows[ij] = {}
@@ -2956,7 +2988,6 @@ if __name__ == '__main__':
                                     if not nx.has_path(dG, od.origin, od.destination):
                                         art_links.append(ij)
                                         break
-
                                 i += 1
                                 damaged_links.append(ij)
 
@@ -2966,7 +2997,6 @@ if __name__ == '__main__':
                                 if not nx.has_path(dG, od.origin, od.destination):
                                     art_links.append(ij)
                                     break
-
                             i += 1
                             damaged_links.append(ij)
 
@@ -3043,616 +3073,97 @@ if __name__ == '__main__':
 
                 os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
 
-                damaged_links = damaged_dict.keys()
-                num_damaged = len(damaged_links)
 
-                print(damaged_dict)
-                save_dir = ULT_SCENARIO_REP_DIR
+            else:
+                damaged_dict_ = get_broken_links(JSONFILE, scenario_file)
+                # num_broken = len(damaged_dict)
 
+                opt = True
+                if num_broken > 8:
+                    opt = False
 
-                if before_after:
-                    net_after, after_eq_tstt, _ = state_after(damaged_links, save_dir)
-                    net_before, before_eq_tstt, _ = state_before(damaged_links, save_dir)
-                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
-                    t = PrettyTable()
-                    t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                    t.field_names = ['Before EQ TSTT', 'After EQ TSTT']
-                    t.add_row([before_eq_tstt, after_eq_tstt])
-                    print(t)
+                memory = {}
+                net = create_network(NETFILE, TRIPFILE)
+
+                all_links = damaged_dict_.keys()
+                damaged_links = np.random.choice(list(all_links), num_broken, replace=False)
+                # repair_days = [net.link[a_link].length for a_link in damaged_links]
+                removals = []
+
+                # net.not_fixed = set([])
+                # solve_UE(net=net)
+                # file_created = False
+                # f = 'flows.txt'
+                # st = time.time()
+                # while not file_created:
+                #     if os.path.exists(f):
+                #         file_created = True
+
+                #     if time.time()-st >10:
+                #         popen = subprocess.call(args, stdout=subprocess.DEVNULL)
+
+                #     if file_created:
+                #         with open(f, "r") as flow_file:
+                #             for line in flow_file.readlines():
+                #                 try:
+                #                     ij = str(line[:line.find(' ')])
+                #                     line = line[line.find(' '):].strip()
+                #                     flow = float(line[:line.find(' ')])
+                #                     line = line[line.find(' '):].strip()
+                #                     cost = float(line.strip())
+                #                     net.link[ij].flow = flow
+                #                     net.link[ij].cost = cost
+                #                 except:
+                #                     break
+
+                #         os.remove('flows.txt')
+
+                # for ij in damaged_links:
+                #     if net.link[ij].flow == 0:
+                #         removals.append(ij)
+
+                # min_rd = min(repair_days)
+                # max_rd = max(repair_days)
+                # med_rd = np.median(repair_days)
+                damaged_dict = {}
+
+                for a_link in damaged_links:
+                    if a_link in removals:
+                        continue
+                    damaged_dict[a_link] = damaged_dict_[a_link]
+
+                    # repair_days = net.link[a_link].length
+                    # if repair_days > med_rd:
+                    #     repair_days += (max_rd - repair_days) * 0.3
+                    # y = ((repair_days - min_rd) / (min_rd - max_rd)
+                    #      * (MIN_DAYS - MAX_DAYS) + MIN_DAYS)
+                    # mu = y
+                    # std = y * 0.3
+                    # damaged_dict[a_link] = np.random.normal(mu, std, 1)[0]
+
+                del damaged_dict_
+                num_broken = len(damaged_dict)
+
+                SCENARIO_DIR = os.path.join(NETWORK_DIR, strength)
+                ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
+                os.makedirs(ULT_SCENARIO_DIR, exist_ok=True)
+
+                repetitions = get_folders(ULT_SCENARIO_DIR)
+
+                if len(repetitions) == 0:
+                    max_rep = -1
                 else:
-                    artLinkDict = makeArtLinks()
-                    benefit_analysis_st = time.time()
-                    wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
-                    benefit_analysis_elapsed = time.time() - benefit_analysis_st
-                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
+                    num_scenario = [int(i) for i in repetitions]
+                    max_rep = max(num_scenario)
+                cur_scnario_num = max_rep + 1
 
-                    ### approx solution methods ###
-                    if approx:
-                        memory1 = deepcopy(memory)
+                ULT_SCENARIO_REP_DIR = os.path.join(
+                    ULT_SCENARIO_DIR, str(cur_scnario_num))
 
-                        preprocess_st = time.time()
-                        #model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(damaged_links, net_after)
-                        #approx_params = (model, meany, stdy)
-                        Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
-                        preprocess_elapsed = time.time() - preprocess_st
-                        time_before = preprocess_elapsed + time_net_before
+                os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
 
-                        ### Largest Averge First Order ###
-                        LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
-                            net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
-                        LAFO_num_tap += preprocessing_num_tap
-                        if alt_crews == None and not multiClass:
-                            print('LAFO_obj: ', LAFO_obj)
-                        elif multiClass and type(net_after.tripfile) == list:
-                            test_net = deepcopy(net_after)
-                            LAFO_obj_mc, _, _ = eval_sequence(
-                                test_net, LAFO_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                            LAFO_obj_mc.insert(0, LAFO_obj)
-                            print('LAFO_obj: ', LAFO_obj_mc)
-                        else:
-                            LAFO_obj_mult = [0]*(len(alt_crews)+1)
-                            LAFO_obj_mult[0] = LAFO_obj
-                            for num in range(len(alt_crews)):
-                                test_net = deepcopy(net_before)
-                                LAFO_obj_mult[num+1], _, _ = eval_sequence(
-                                    test_net, LAFO_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                            print('LAFO_obj: ', LAFO_obj_mult)
 
-                        ### Largest Averge Smith Ratio ###
-                        LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(
-                            net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
-                        LASR_num_tap += preprocessing_num_tap
-                        if alt_crews == None and not multiClass:
-                            print('LASR_obj: ', LASR_obj)
-                        elif multiClass and type(net_after.tripfile) == list:
-                            test_net = deepcopy(net_after)
-                            LASR_obj_mc, _, _ = eval_sequence(
-                                test_net, LASR_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                            LASR_obj_mc.insert(0, LASR_obj)
-                            print('LASR_obj: ', LASR_obj_mc)
-                        else:
-                            LASR_obj_mult = [0]*(len(alt_crews)+1)
-                            LASR_obj_mult[0] = LAFO_obj
-                            for num in range(len(alt_crews)):
-                                test_net = deepcopy(net_before)
-                                LASR_obj_mult[num+1], _, _ = eval_sequence(
-                                    test_net, LASR_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                            print('LASR_obj: ', LASR_obj_mult)
-
-                        # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
-                        # approx_num_tap += preprocessing_num_tap
-                        # print('approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
-                        memory = deepcopy(memory1)
-
-                    ### Shortest processing time solution ###
-                    SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
-                        net_before, after_eq_tstt, before_eq_tstt, time_net_before)
-                    if alt_crews == None and not multiClass:
-                        print('SPT_obj: ', SPT_obj)
-                    elif multiClass and type(net_after.tripfile) == list:
-                        test_net = deepcopy(net_after)
-                        SPT_obj_mc, _, _ = eval_sequence(
-                            test_net, SPT_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        SPT_obj_mc.insert(0, SPT_obj)
-                        print('SPT_obj: ', SPT_obj_mc)
-                    else:
-                        SPT_obj_mult = [0]*(len(alt_crews)+1)
-                        SPT_obj_mult[0] = SPT_obj
-                        for num in range(len(alt_crews)):
-                            test_net = deepcopy(net_before)
-                            SPT_obj_mult[num+1], _, _ = eval_sequence(
-                                test_net, SPT_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                        print('SPT_obj: ', SPT_obj_mult)
-
-                    ### Lazy greedy solution ###
-                    lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
-                        #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time)
-                    if alt_crews == None and not multiClass:
-                        print('lazy_greedy_obj: ', lg_obj)
-                    elif multiClass and type(net_after.tripfile) == list:
-                        test_net = deepcopy(net_after)
-                        lg_obj_mc, _, _ = eval_sequence(
-                            test_net, lg_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        lg_obj_mc.insert(0, lg_obj)
-                        print('lazy_greedy_obj: ', lg_obj_mc)
-                    else:
-                        lg_obj_mult = [0]*(len(alt_crews)+1)
-                        lg_obj_mult[0] = lg_obj
-                        for num in range(len(alt_crews)):
-                            test_net = deepcopy(net_after)
-                            lg_obj_mult[num+1], _, _ = eval_sequence(
-                                test_net, lg_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                        print('lazy_greedy_obj: ', lg_obj_mult)
-
-                    wb_update = deepcopy(wb)
-                    bb_update = deepcopy(bb)
-
-
-                    ### Get greedy solution ###
-                    if num_crews == 1:
-                        greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
-                            net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after)
-                    else:
-                        greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic_mult(
-                            net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, num_crews)
-                    if alt_crews == None and not multiClass:
-                        print('greedy_obj: ', greedy_obj)
-                    elif multiClass and type(net_after.tripfile) == list:
-                        test_net = deepcopy(net_after)
-                        greedy_obj_mc, _, _ = eval_sequence(
-                            test_net, greedy_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        greedy_obj_mc.insert(0, greedy_obj)
-                        print('greedy_obj: ', greedy_obj_mc)
-                    else:
-                        greedy_obj_mult = [0]*(len(alt_crews)+1)
-                        greedy_obj_mult[0] = greedy_obj
-                        for num in range(len(alt_crews)):
-                            test_net = deepcopy(net_after)
-                            greedy_obj_mult[num+1], _, _ = eval_sequence(
-                                test_net, greedy_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                        print('greedy_obj: ', greedy_obj_mult)
-
-                    bfs = BestSoln()
-                    bfs.cost = greedy_obj
-                    bfs.path = greedy_soln
-
-                    wb = deepcopy(wb_update)
-                    bb = deepcopy(bb_update)
-
-                    wb_orig = deepcopy(wb)
-                    bb_orig = deepcopy(bb)
-
-
-                    ### Get feasible solution using importance factor ###
-                    importance_obj, importance_soln, importance_elapsed, importance_num_tap = importance_factor_solution(
-                        net_before, after_eq_tstt, before_eq_tstt, time_net_before)
-                    if alt_crews == None and not multiClass:
-                        print('importance_obj: ', importance_obj)
-                    elif multiClass and type(net_after.tripfile) == list:
-                        test_net = deepcopy(net_after)
-                        importance_obj_mc, _, _ = eval_sequence(
-                            test_net, importance_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        importance_obj_mc.insert(0, importance_obj)
-                        print('importance_obj: ', importance_obj_mc)
-                    else:
-                        importance_obj_mult = [0]*(len(alt_crews)+1)
-                        importance_obj_mult[0] = importance_obj
-                        for num in range(len(alt_crews)):
-                            test_net = deepcopy(net_after)
-                            importance_obj_mult[num+1], _, _ = eval_sequence(
-                                test_net, importance_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                        print('importance_obj: ', importance_obj_mult)
-
-                    if importance_obj < bfs.cost:
-                       bfs.cost = importance_obj
-                       bfs.path = importance_soln
-
-                    memory1 = deepcopy(memory)
-
-                    ### Get optimal solution via brute force ###
-                    if opt:
-                        opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
-                            net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
-                        opt_elapsed += greedy_elapsed
-                        opt_num_tap += greedy_num_tap + len(damaged_links) - 1
-                        print('optimal obj with {} crew(s): {}, optimal path: {}'.format(num_crews, opt_obj, opt_soln))
-                        if multiClass and type(net_after.tripfile) == list:
-                            test_net = deepcopy(net_after)
-                            opt_obj_mc, _, _ = eval_sequence(
-                                test_net, opt_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                            opt_obj_mc.insert(0, opt_obj)
-                            print('optimal obj and demand class breakdown with {} crew(s): {}'.format(num_crews, opt_obj_mc))
-                        if alt_crews != None:
-                            opt_obj_mult = [0]*(len(alt_crews)+1)
-                            opt_obj_mult[0] = opt_obj
-                            opt_soln_mult = [0]*(len(alt_crews)+1)
-                            opt_soln_mult[0] = opt_soln
-                            opt_elapsed_mult = [0]*(len(alt_crews)+1)
-                            opt_elapsed_mult[0] = opt_elapsed
-                            opt_num_tap_mult = [0]*(len(alt_crews)+1)
-                            opt_num_tap_mult[0] = opt_num_tap
-                            for num in range(len(alt_crews)):
-                                memory = deepcopy(memory1)
-                                opt_obj_mult[num+1], opt_soln_mult[num+1], opt_elapsed_mult[num+1], opt_num_tap_mult[num+1] = brute_force(
-                                    net_after, after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
-                                opt_elapsed_mult[num+1] += greedy_elapsed
-                                opt_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 1
-                                print('optimal obj with {} crew(s): {}, optimal path: {}'.format(alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
-                                if multiClass and type(net_after.tripfile) == list:
-                                    test_net = deepcopy(net_after)
-                                    temp, _, _ = eval_sequence(
-                                        test_net, opt_soln_mult[num+1], after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num], multiClass=multiClass)
-                                    opt_obj_mc.append(temp)
-                                    opt_obj_mc[num+1].insert(0, opt_obj_mult[num+1])
-                                    print('optimal obj and demand class breakdown with {} crew(s): {}'.format(num_crews, opt_obj_mc[num+1]))
-
-                    best_benefit_taps = num_damaged
-                    worst_benefit_taps = num_damaged
-
-                    memory = deepcopy(memory1)
-
-
-                    ### Get simulated annealing solution ###
-                    if sa:
-                        sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
-                            bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews)
-                        sa_elapsed += greedy_elapsed + importance_elapsed
-                        sa_num_tap += greedy_num_tap
-                        if alt_crews == None and not multiClass:
-                            print('simulated annealing obj: ', sa_obj)
-                        elif multiClass and type(net_after.tripfile) == list:
-                            test_net = deepcopy(net_after)
-                            sa_obj_mc, _, _ = eval_sequence(
-                                test_net, sa_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                            sa_obj_mc.insert(0, sa_obj)
-                            print('simulated annealing obj: ', sa_obj_mc)
-                        else:
-                            sa_obj_mult = [0]*(len(alt_crews)+1)
-                            sa_obj_mult[0] = sa_obj
-                            for num in range(len(alt_crews)):
-                                test_net = deepcopy(net_after)
-                                sa_obj_mult[num+1], _, _ = eval_sequence(
-                                    test_net, sa_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                            print('simulated annealing obj: ', sa_obj_mult)
-
-
-                    ### Use full search algorthm to find solution ###
-                    if full:
-                        print('full')
-                        algo_num_tap = best_benefit_taps + worst_benefit_taps
-
-                        fname = save_dir + '/algo_solution'
-
-                        if not os.path.exists(fname + extension):
-                            search_start = time.time()
-                            algo_path, algo_obj, search_tap_solved, tot_child, uncommon_number, common_number, _ = search(
-                                start_node, end_node, bfs)
-                            search_elapsed = time.time() - search_start + greedy_elapsed
-
-                            net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
-                            net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
-
-                            first_net = deepcopy(net_after)
-                            first_net.relax = False
-                            algo_obj, _, _ = eval_sequence(
-                                first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
-
-                            algo_num_tap += search_tap_solved + greedy_num_tap
-                            algo_elapsed = search_elapsed + benefit_analysis_elapsed
-
-                            save(fname + '_obj', algo_obj)
-                            save(fname + '_path', algo_path)
-                            save(fname + '_num_tap', algo_num_tap)
-                            save(fname + '_elapsed', algo_elapsed)
-                            save(fname + '_totchild', tot_child)
-                            save(fname + '_uncommon', uncommon_number)
-                            save(fname + '_common', common_number)
-                        else:
-                            algo_obj = load(fname + '_obj')
-                            algo_path = load(fname + '_path')
-                            algo_num_tap = load(fname + '_num_tap')
-                            algo_elapsed = load(fname + '_elapsed')
-
-                        print('---------------FULLOBJ')
-                        if alt_crews == None and not multiClass:
-                            print('full obj: ', algo_obj)
-                        elif multiClass and type(net_after.tripfile) == list:
-                            test_net = deepcopy(net_after)
-                            algo_obj_mc, _, _ = eval_sequence(
-                                test_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                            algo_obj_mc.insert(0, algo_obj)
-                            print('full obj: ', algo_obj_mc)
-                        else:
-                            algo_obj_mult = [0]*(len(alt_crews)+1)
-                            algo_obj_mult[0] = algo_obj
-                            for num in range(len(alt_crews)):
-                                test_net = deepcopy(net_after)
-                                algo_obj_mult[num+1], _, _ = eval_sequence(
-                                    test_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                            print('full obj: ', algo_obj_mult)
-
-
-                    ### Use beamsearch algorithm to find solution ###
-                    if beam_search:
-
-                        runs = ['normal'] # sa_seed must be run first because of memory from sa
-
-                        for run in runs:
-
-                            # betas = [64, 128, 256, 512]
-                            # gammas = [32, 64, 128]
-
-                            k = 2
-                            betas = [128]
-                            gammas = [128]
-
-                            beta_gamma = list(itertools.product(gammas, betas))
-
-                            experiment_dict = {}
-                            for a_pair in beta_gamma:
-                                gamma = a_pair[0]
-                                beta = a_pair[1]
-
-                                # beamsearch with gap 1e-4
-                                print('===', gamma, beta , '===')
-
-                                fname = save_dir + '/r_algo_solution' + '_k' + str(k)
-                                ext_name = 'r_k' + str(k)
-
-                                if run != 'sa_seed':
-                                    del memory
-                                    memory = deepcopy(memory1)
-
-                                wb = wb_orig
-                                bb = bb_orig
-                                wb_update = wb_orig
-                                bb_update = bb_orig
-
-
-                                if greedy_obj <= importance_obj:
-                                    bfs.cost = greedy_obj
-                                    bfs.path = greedy_soln
-                                else:
-                                    bfs.cost = importance_obj
-                                    bfs.path = importance_soln
-                                if run == 'sa_seed':
-                                    if sa_obj < bfs.cost:
-                                        bfs.cost = sa_obj
-                                        bfs.path = sa_soln
-
-                                if run == 'sa_seed':
-                                    sa_r_algo_num_tap = sa_num_tap
-                                else:
-                                    r_algo_num_tap = worst_benefit_taps - 1 + greedy_num_tap
-
-                                start_node.relax = True
-                                end_node.relax = True
-
-
-                                # if not os.path.exists(fname + extension):
-                                search_start = time.time()
-                                r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr, uncommon_numberr, common_numberr, num_purger = search(
-                                    start_node, end_node, bfs, beam_search=beam_search, beam_k=k, beta=beta, gamma=gamma)
-                                search_elapsed = time.time() - search_start
-
-                                if graphing:
-                                    bs_time_list.append(search_elapsed)
-                                    bs_OBJ_list.append(r_algo_obj)
-
-                                net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
-                                net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
-
-                                first_net = deepcopy(net_after)
-                                first_net.relax = False
-                                r_algo_obj, _, _ = eval_sequence(
-                                    first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
-
-                                if run == 'sa_seed':
-                                    sa_r_algo_num_tap += r_search_tap_solved
-                                    sa_r_algo_elapsed = search_elapsed + sa_elapsed
-                                    sa_r_algo_obj = deepcopy(r_algo_obj)
-                                    sa_r_algo_path = deepcopy(r_algo_path)
-                                    save(fname + '_obj_sa', sa_r_algo_obj)
-                                    save(fname + '_path_sa', sa_r_algo_path)
-                                    save(fname + '_num_tap_sa', sa_r_algo_num_tap)
-                                    save(fname + '_elapsed_sa', sa_r_algo_elapsed)
-                                    save(fname + '_totchild_sa', tot_childr)
-                                    save(fname + '_uncommon_sa', uncommon_numberr)
-                                    save(fname + '_common_sa', common_numberr)
-                                    save(fname + '_num_purge_sa', num_purger)
-
-                                    print(f'beam_search k: {k}, relaxed: True, type of run {run}')
-                                    if alt_crews == None and not multiClass:
-                                        print('sa seeded beam search obj: ', sa_r_algo_obj)
-                                    elif multiClass and type(net_after.tripfile) == list:
-                                        test_net = deepcopy(net_after)
-                                        sa_r_algo_obj_mc, _, _ = eval_sequence(
-                                            test_net, sa_r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                                        sa_r_algo_obj_mc.insert(0, sa_r_algo_obj)
-                                        print('sa seeded beam search obj: ', sa_r_algo_obj_mc)
-                                    else:
-                                        sa_r_algo_obj_mult = [0]*(len(alt_crews)+1)
-                                        sa_r_algo_obj_mult[0] = sa_r_algo_obj
-                                        for num in range(len(alt_crews)):
-                                            test_net = deepcopy(net_after)
-                                            sa_r_algo_obj_mult[num+1], _, _ = eval_sequence(
-                                                test_net, sa_r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                                        print('sa seeded beam search obj: ', sa_r_algo_obj_mult)
-
-                                else:
-                                    r_algo_num_tap += r_search_tap_solved
-                                    r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
-                                    save(fname + '_obj', r_algo_obj)
-                                    save(fname + '_path', r_algo_path)
-                                    save(fname + '_num_tap', r_algo_num_tap)
-                                    save(fname + '_elapsed', r_algo_elapsed)
-                                    save(fname + '_totchild', tot_childr)
-                                    save(fname + '_uncommon', uncommon_numberr)
-                                    save(fname + '_common', common_numberr)
-                                    save(fname + '_num_purge', num_purger)
-
-                                # else:
-                                #     r_algo_obj = load(fname + '_obj')
-                                #     r_algo_path = load(fname + '_path')
-                                #     r_algo_num_tap = load(fname + '_num_tap')
-                                #     r_algo_elapsed = load(fname + '_elapsed')
-
-                                    print(f'beam_search k: {k}, relaxed: True, type of run {run}')
-                                    if alt_crews == None and not multiClass:
-                                        print('beam search obj: ', r_algo_obj)
-                                    elif multiClass and type(net_after.tripfile) == list:
-                                        test_net = deepcopy(net_after)
-                                        r_algo_obj_mc, _, _ = eval_sequence(
-                                            test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                                        r_algo_obj_mc.insert(0, r_algo_obj)
-                                        print('beam search obj: ', (r_algo_obj_mc))
-                                    else:
-                                        r_algo_obj_mult = [0]*(len(alt_crews)+1)
-                                        r_algo_obj_mult[0] = r_algo_obj
-                                        for num in range(len(alt_crews)):
-                                            test_net = deepcopy(net_after)
-                                            r_algo_obj_mult[num+1], _, _ = eval_sequence(
-                                                test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
-                                        print('beam search obj: ', r_algo_obj_mult)
-
-                                    experiment_dict[a_pair] = [r_algo_obj, r_algo_num_tap, r_algo_elapsed]
-
-                            for k,v in experiment_dict.items():
-                                print('Gamma - Beta: {}, obj-tap-elapsed: {}'.format(k,v))
-
-                    if multiClass and type(net_after.tripfile) == list:
-                        t = PrettyTable()
-                        t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                        t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
-                        if opt:
-                            t.add_row(['OPTIMAL', opt_obj_mc, opt_elapsed, opt_num_tap])
-                        if approx:
-                            t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
-                            t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
-                        # if len(damaged_links) < 32:
-                        #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
-                        if full:
-                            t.add_row(['FULL ALGO', algo_obj_mc, algo_elapsed, algo_num_tap])
-                        if beam_search:
-                            t.add_row(['BeamSearch_relaxed', r_algo_obj_mc, r_algo_elapsed, r_algo_num_tap])
-                            try:
-                                t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj_mc, sa_r_algo_elapsed, sa_r_algo_num_tap])
-                            except:
-                                pass
-                        if sa:
-                            t.add_row(['Simulated Annealing', sa_obj_mc, sa_elapsed, sa_num_tap])
-                        t.add_row(['GREEDY', greedy_obj_mc, greedy_elapsed, greedy_num_tap])
-                        t.add_row(['LG', lg_obj_mc, lg_elapsed, lg_num_tap])
-                        t.add_row(['IMPORTANCE', importance_obj_mc, importance_elapsed, importance_num_tap])
-                        t.add_row(['SPT', SPT_obj_mc, SPT_elapsed, SPT_num_tap])
-                        t.set_style(MSWORD_FRIENDLY)
-                        print(t)
-
-                    elif alt_crews == None:
-                        t = PrettyTable()
-                        t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                        t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
-                        if opt:
-                            t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
-                        if approx:
-                            t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
-                            t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
-                        # if len(damaged_links) < 32:
-                        #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
-                        if full:
-                            t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
-                        if beam_search:
-                            t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
-                            try:
-                                t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj, sa_r_algo_elapsed, sa_r_algo_num_tap])
-                            except:
-                                pass
-                        if sa:
-                            t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
-                        t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
-                        t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
-                        t.add_row(['IMPORTANCE', importance_obj, importance_elapsed, importance_num_tap])
-                        t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
-                        t.set_style(MSWORD_FRIENDLY)
-                        print(t)
-
-                    else:
-                        t = PrettyTable()
-                        t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                        t.field_names = ['Method', 'Objectives', 'Run Time', '# TAP']
-                        if opt:
-                            for num in range(len(alt_crews)+1):
-                                if num == 0:
-                                    t.add_row(['OPTIMAL '+str(num_crews), opt_obj_mult[num], opt_elapsed_mult[num], opt_num_tap])
-                                else:
-                                    t.add_row(['OPTIMAL '+str(alt_crews[num-1]), opt_obj_mult[num], opt_elapsed_mult[num], opt_num_tap])
-                        if approx:
-                            t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
-                            t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
-                        # if len(damaged_links) < 32:
-                        #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
-                        if full:
-                            t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
-                        if beam_search:
-                            t.add_row(['BeamSearch_relaxed', r_algo_obj_mult, r_algo_elapsed, r_algo_num_tap])
-                            try:
-                                t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj_mult, sa_r_algo_elapsed, sa_r_algo_num_tap])
-                            except:
-                                pass
-                        if sa:
-                            t.add_row(['Simulated Annealing', sa_obj_mult, sa_elapsed, sa_num_tap])
-                        t.add_row(['GREEDY', greedy_obj_mult, greedy_elapsed, greedy_num_tap])
-                        t.add_row(['LG', lg_obj_mult, lg_elapsed, lg_num_tap])
-                        t.add_row(['IMPORTANCE', importance_obj_mult, importance_elapsed, importance_num_tap])
-                        t.add_row(['SPT', SPT_obj_mult, SPT_elapsed, SPT_num_tap])
-                        t.set_style(MSWORD_FRIENDLY)
-                        print(t)
-
-                    fname = save_dir + '/results.csv'
-                    with open(fname, 'w', newline='') as f:
-                        f.write(t.get_csv_string(header=False))
-
-                    print(swapped_links)
-                    # pdb.set_trace()
-
-                    # print('bs totchild vs uncommon vs common vs purged')
-                    # print(tot_childbs, uncommon_numberbs, common_numberbs, num_purgebs)
-                    if beam_search:
-                        print('r totchild vs uncommon vs common vs purged')
-                        print(tot_childr, uncommon_numberr, common_numberr, num_purger)
-
-                    print('PATHS')
-                    if approx:
-                        print('approx-LAFO: ', LAFO_soln)
-                        print('---------------------------')
-                        print('approx-LASR: ', LASR_soln)
-                        print('---------------------------')
-                    if opt:
-                        print('optimal by brute force: ', opt_soln)
-                        print('---------------------------')
-                    if full:
-                        print('algorithm: ', algo_path)
-                        print('---------------------------')
-                    if beam_search:
-                        print('beamsearch: ', r_algo_path)
-                        print('---------------------------')
-                        try:
-                            print('beamsearch with sa seed: ', sa_r_algo_path)
-                            print('---------------------------')
-                        except:
-                            pass
-                    if sa:
-                        print('simulated annealing: ', sa_soln)
-                        print('---------------------------')
-                    print('greedy: ', greedy_soln)
-                    print('---------------------------')
-                    print('lazy_greedy: ', lg_soln)
-                    print('---------------------------')
-                    print('importance factors: ', importance_soln)
-                    print('---------------------------')
-                    print('shortest processing time: ', SPT_soln)
-
-            if graphing:
-                plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
-
-        elif damaged_dict_preset != '':
-            damaged_dict = load(damaged_dict_preset + '/' + 'damaged_dict')
-
-            SCENARIO_DIR = NETWORK_DIR
-            ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
-
-            i = ord('a')
-            while True:
-                try:
-                    ULT_SCENARIO_REP_DIR = damaged_dict_preset+chr(i)
-                    os.makedirs(ULT_SCENARIO_REP_DIR)
-                    break
-                except FileExistsError:
-                    print(chr(i) + ' is already taken, trying ' + chr(i+1))
-                    i += 1
-                if i > 121:
-                    break
-
+            ### finalize damaged links ###
             damaged_links = damaged_dict.keys()
             num_damaged = len(damaged_links)
 
@@ -3663,6 +3174,7 @@ if __name__ == '__main__':
             if before_after:
                 net_after, after_eq_tstt, _ = state_after(damaged_links, save_dir)
                 net_before, before_eq_tstt, _ = state_before(damaged_links, save_dir)
+                plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
                 t = PrettyTable()
                 t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
                 t.field_names = ['Before EQ TSTT', 'After EQ TSTT']
@@ -3674,7 +3186,7 @@ if __name__ == '__main__':
                 benefit_analysis_st = time.time()
                 wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
                 benefit_analysis_elapsed = time.time() - benefit_analysis_st
-
+                plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
 
                 ### approx solution methods ###
                 if approx:
@@ -3691,13 +3203,44 @@ if __name__ == '__main__':
                     LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
                         net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                     LAFO_num_tap += preprocessing_num_tap
-                    print('LAFO_obj: ', LAFO_obj)
+                    if alt_crews == None and not multiClass:
+                        print('LAFO_obj: ', LAFO_obj)
+                    elif multiClass and type(net_after.tripfile) == list:
+                        test_net = deepcopy(net_after)
+                        LAFO_obj_mc, _, _ = eval_sequence(
+                            test_net, LAFO_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                        LAFO_obj_mc.insert(0, LAFO_obj)
+                        print('LAFO_obj: ', LAFO_obj_mc)
+                    else:
+                        LAFO_obj_mult = [0]*(len(alt_crews)+1)
+                        LAFO_obj_mult[0] = LAFO_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_before)
+                            LAFO_obj_mult[num+1], _, _ = eval_sequence(
+                                test_net, LAFO_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                        print('LAFO_obj: ', LAFO_obj_mult)
+
 
                     ### Largest Averge Smith Ratio ###
                     LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(
                         net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                     LASR_num_tap += preprocessing_num_tap
-                    print('LASR_obj: ', LASR_obj)
+                    if alt_crews == None and not multiClass:
+                        print('LASR_obj: ', LASR_obj)
+                    elif multiClass and type(net_after.tripfile) == list:
+                        test_net = deepcopy(net_after)
+                        LASR_obj_mc, _, _ = eval_sequence(
+                            test_net, LASR_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                        LASR_obj_mc.insert(0, LASR_obj)
+                        print('LASR_obj: ', LASR_obj_mc)
+                    else:
+                        LASR_obj_mult = [0]*(len(alt_crews)+1)
+                        LASR_obj_mult[0] = LAFO_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_before)
+                            LASR_obj_mult[num+1], _, _ = eval_sequence(
+                                test_net, LASR_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                        print('LASR_obj: ', LASR_obj_mult)
 
                     # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
                     # approx_num_tap += preprocessing_num_tap
@@ -3707,12 +3250,46 @@ if __name__ == '__main__':
                 ### Shortest processing time solution ###
                 SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
                     net_before, after_eq_tstt, before_eq_tstt, time_net_before)
-                print('SPT_obj: ', SPT_obj)
+                if alt_crews == None and not multiClass:
+                    print('incorrectly entered  alt_crews == None and not multiClass if for SPT')
+                    print('SPT_obj: ', SPT_obj)
+                elif multiClass and type(net_after.tripfile) == list:
+                    print('correctly entered multiclass elif for SPT')
+                    test_net = deepcopy(net_after)
+                    SPT_obj_mc, _, _ = eval_sequence(
+                        test_net, SPT_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                    SPT_obj_mc.insert(0, SPT_obj)
+                    print('SPT_obj: ', SPT_obj_mc)
+                else:
+                    print('incorrectly entered multiCREW else for SPT')
+                    SPT_obj_mult = [0]*(len(alt_crews)+1)
+                    SPT_obj_mult[0] = SPT_obj
+                    for num in range(len(alt_crews)):
+                        test_net = deepcopy(net_before)
+                        SPT_obj_mult[num+1], _, _ = eval_sequence(
+                            test_net, SPT_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                    print('SPT_obj: ', SPT_obj_mult)
+
 
                 ### Lazy greedy solution ###
                 lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
                     #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time)
-                print('lazy_greedy_obj: ', lg_obj)
+                if alt_crews == None and not multiClass:
+                    print('lazy_greedy_obj: ', lg_obj)
+                elif multiClass and type(net_after.tripfile) == list:
+                    test_net = deepcopy(net_after)
+                    lg_obj_mc, _, _ = eval_sequence(
+                        test_net, lg_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                    lg_obj_mc.insert(0, lg_obj)
+                    print('lazy_greedy_obj: ', lg_obj_mc)
+                else:
+                    lg_obj_mult = [0]*(len(alt_crews)+1)
+                    lg_obj_mult[0] = lg_obj
+                    for num in range(len(alt_crews)):
+                        test_net = deepcopy(net_after)
+                        lg_obj_mult[num+1], _, _ = eval_sequence(
+                            test_net, lg_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                    print('lazy_greedy_obj: ', lg_obj_mult)
 
                 wb_update = deepcopy(wb)
                 bb_update = deepcopy(bb)
@@ -3725,7 +3302,22 @@ if __name__ == '__main__':
                 else:
                     greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic_mult(
                         net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, num_crews)
-                print('greedy_obj: ', greedy_obj)
+                if alt_crews == None and not multiClass:
+                    print('greedy_obj: ', greedy_obj)
+                elif multiClass and type(net_after.tripfile) == list:
+                    test_net = deepcopy(net_after)
+                    greedy_obj_mc, _, _ = eval_sequence(
+                        test_net, greedy_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                    greedy_obj_mc.insert(0, greedy_obj)
+                    print('greedy_obj: ', greedy_obj_mc)
+                else:
+                    greedy_obj_mult = [0]*(len(alt_crews)+1)
+                    greedy_obj_mult[0] = greedy_obj
+                    for num in range(len(alt_crews)):
+                        test_net = deepcopy(net_after)
+                        greedy_obj_mult[num+1], _, _ = eval_sequence(
+                            test_net, greedy_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                    print('greedy_obj: ', greedy_obj_mult)
 
                 bfs = BestSoln()
                 bfs.cost = greedy_obj
@@ -3741,35 +3333,95 @@ if __name__ == '__main__':
                 ### Get feasible solution using importance factor ###
                 importance_obj, importance_soln, importance_elapsed, importance_num_tap = importance_factor_solution(
                     net_before, after_eq_tstt, before_eq_tstt, time_net_before)
-                print('importance_obj: ', importance_obj)
+                if alt_crews == None and not multiClass:
+                    print('importance_obj: ', importance_obj)
+                elif multiClass and type(net_after.tripfile) == list:
+                    test_net = deepcopy(net_after)
+                    importance_obj_mc, _, _ = eval_sequence(
+                        test_net, importance_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                    importance_obj_mc.insert(0, importance_obj)
+                    print('importance_obj: ', importance_obj_mc)
+                else:
+                    importance_obj_mult = [0]*(len(alt_crews)+1)
+                    importance_obj_mult[0] = importance_obj
+                    for num in range(len(alt_crews)):
+                        test_net = deepcopy(net_after)
+                        importance_obj_mult[num+1], _, _ = eval_sequence(
+                            test_net, importance_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                    print('importance_obj: ', importance_obj_mult)
 
                 if importance_obj < bfs.cost:
                     bfs.cost = importance_obj
                     bfs.path = importance_soln
 
+                memory1 = deepcopy(memory)
+
 
                 ### Get optimal solution via brute force ###
                 if opt:
                     opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
-                        net_after, after_eq_tstt, before_eq_tstt)
+                        net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
                     opt_elapsed += greedy_elapsed
                     opt_num_tap += greedy_num_tap + len(damaged_links) - 1
                     print('optimal obj with {} crew(s): {}, optimal path: {}'.format(num_crews, opt_obj, opt_soln))
+                    if multiClass and type(net_after.tripfile) == list:
+                        test_net = deepcopy(net_after)
+                        opt_obj_mc, _, _ = eval_sequence(
+                            test_net, opt_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                        opt_obj_mc.insert(0, opt_obj)
+                        print('optimal obj and demand class breakdown with {} crew(s): {}'.format(num_crews, opt_obj_mc))
+                    if alt_crews != None:
+                        opt_obj_mult = [0]*(len(alt_crews)+1)
+                        opt_obj_mult[0] = opt_obj
+                        opt_soln_mult = [0]*(len(alt_crews)+1)
+                        opt_soln_mult[0] = opt_soln
+                        opt_elapsed_mult = [0]*(len(alt_crews)+1)
+                        opt_elapsed_mult[0] = opt_elapsed
+                        opt_num_tap_mult = [0]*(len(alt_crews)+1)
+                        opt_num_tap_mult[0] = opt_num_tap
+                        for num in range(len(alt_crews)):
+                            memory = deepcopy(memory1)
+                            opt_obj_mult[num+1], opt_soln_mult[num+1], opt_elapsed_mult[num+1], opt_num_tap_mult[num+1] = brute_force(
+                                net_after, after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                            opt_elapsed_mult[num+1] += greedy_elapsed
+                            opt_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 1
+                            print('optimal obj with {} crew(s): {}, optimal path: {}'.format(alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
+                            if multiClass and type(net_after.tripfile) == list:
+                                test_net = deepcopy(net_after)
+                                temp, _, _ = eval_sequence(
+                                    test_net, opt_soln_mult[num+1], after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num], multiClass=multiClass)
+                                opt_obj_mc.append(temp)
+                                opt_obj_mc[num+1].insert(0, opt_obj_mult[num+1])
+                                print('optimal obj and demand class breakdown with {} crew(s): {}'.format(num_crews, opt_obj_mc[num+1]))
 
                 best_benefit_taps = num_damaged
                 worst_benefit_taps = num_damaged
 
-                memory1 = deepcopy(memory)
+                memory = deepcopy(memory1)
 
 
                 ### Get simulated annealing solution ###
                 if sa:
                     sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
-                    bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews)
+                        bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews)
                     sa_elapsed += greedy_elapsed + importance_elapsed
                     sa_num_tap += greedy_num_tap
-
-                    print('simulated annealing obj: ', sa_obj)
+                    if alt_crews == None and not multiClass:
+                        print('simulated annealing obj: ', sa_obj)
+                    elif multiClass and type(net_after.tripfile) == list:
+                        test_net = deepcopy(net_after)
+                        sa_obj_mc, _, _ = eval_sequence(
+                            test_net, sa_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                        sa_obj_mc.insert(0, sa_obj)
+                        print('simulated annealing obj: ', sa_obj_mc)
+                    else:
+                        sa_obj_mult = [0]*(len(alt_crews)+1)
+                        sa_obj_mult[0] = sa_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_after)
+                            sa_obj_mult[num+1], _, _ = eval_sequence(
+                                test_net, sa_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                        print('simulated annealing obj: ', sa_obj_mult)
 
 
                 ### Use full search algorthm to find solution ###
@@ -3810,29 +3462,44 @@ if __name__ == '__main__':
                         algo_elapsed = load(fname + '_elapsed')
 
                     print('---------------FULLOBJ')
-                    print('full obj: ', algo_obj)
+                    if alt_crews == None and not multiClass:
+                        print('full obj: ', algo_obj)
+                    elif multiClass and type(net_after.tripfile) == list:
+                        test_net = deepcopy(net_after)
+                        algo_obj_mc, _, _ = eval_sequence(
+                            test_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                        algo_obj_mc.insert(0, algo_obj)
+                        print('full obj: ', algo_obj_mc)
+                    else:
+                        algo_obj_mult = [0]*(len(alt_crews)+1)
+                        algo_obj_mult[0] = algo_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_after)
+                            algo_obj_mult[num+1], _, _ = eval_sequence(
+                                test_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                        print('full obj: ', algo_obj_mult)
 
 
                 ### Use beamsearch algorithm to find solution ###
                 if beam_search:
 
-                    ks = [2]
+                    runs = ['normal'] # sa_seed must be run first because of memory from sa
 
-                    for k in ks:
+                    for run in runs:
+
                         # betas = [64, 128, 256, 512]
                         # gammas = [32, 64, 128]
 
+                        k = 2
                         betas = [128]
                         gammas = [128]
 
                         beta_gamma = list(itertools.product(gammas, betas))
 
                         experiment_dict = {}
-                        # for gamma in gammas:
                         for a_pair in beta_gamma:
                             gamma = a_pair[0]
                             beta = a_pair[1]
-                            # a_pair = gamma
 
                             # beamsearch with gap 1e-4
                             print('===', gamma, beta , '===')
@@ -3840,8 +3507,9 @@ if __name__ == '__main__':
                             fname = save_dir + '/r_algo_solution' + '_k' + str(k)
                             ext_name = 'r_k' + str(k)
 
-                            del memory
-                            memory = deepcopy(memory1)
+                            if run != 'sa_seed':
+                                del memory
+                                memory = deepcopy(memory1)
 
                             wb = wb_orig
                             bb = bb_orig
@@ -3855,18 +3523,28 @@ if __name__ == '__main__':
                             else:
                                 bfs.cost = importance_obj
                                 bfs.path = importance_soln
+                            if run == 'sa_seed':
+                                if sa_obj < bfs.cost:
+                                    bfs.cost = sa_obj
+                                    bfs.path = sa_soln
 
-                            r_algo_num_tap = worst_benefit_taps - 1 + greedy_num_tap
+                            if run == 'sa_seed':
+                                sa_r_algo_num_tap = sa_num_tap
+                            else:
+                                r_algo_num_tap = worst_benefit_taps - 1 + greedy_num_tap
 
                             start_node.relax = True
                             end_node.relax = True
 
-
                             # if not os.path.exists(fname + extension):
                             search_start = time.time()
                             r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr, uncommon_numberr, common_numberr, num_purger = search(
-                            start_node, end_node, bfs, beam_search=beam_search, beam_k=k, beta=beta, gamma=gamma)
+                                start_node, end_node, bfs, beam_search=beam_search, beam_k=k, beta=beta, gamma=gamma)
                             search_elapsed = time.time() - search_start
+
+                            if graphing:
+                                bs_time_list.append(search_elapsed)
+                                bs_OBJ_list.append(r_algo_obj)
 
                             net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
                             net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
@@ -3875,17 +3553,50 @@ if __name__ == '__main__':
                             first_net.relax = False
                             r_algo_obj, _, _ = eval_sequence(
                                 first_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
-                            r_algo_num_tap += r_search_tap_solved
-                            r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
 
-                            save(fname + '_obj', r_algo_obj)
-                            save(fname + '_path', r_algo_path)
-                            save(fname + '_num_tap', r_algo_num_tap)
-                            save(fname + '_elapsed', r_algo_elapsed)
-                            save(fname + '_totchild', tot_childr)
-                            save(fname + '_uncommon', uncommon_numberr)
-                            save(fname + '_common', common_numberr)
-                            save(fname + '_num_purge', num_purger)
+                            if run == 'sa_seed':
+                                sa_r_algo_num_tap += r_search_tap_solved
+                                sa_r_algo_elapsed = search_elapsed + sa_elapsed
+                                sa_r_algo_obj = deepcopy(r_algo_obj)
+                                sa_r_algo_path = deepcopy(r_algo_path)
+                                save(fname + '_obj_sa', sa_r_algo_obj)
+                                save(fname + '_path_sa', sa_r_algo_path)
+                                save(fname + '_num_tap_sa', sa_r_algo_num_tap)
+                                save(fname + '_elapsed_sa', sa_r_algo_elapsed)
+                                save(fname + '_totchild_sa', tot_childr)
+                                save(fname + '_uncommon_sa', uncommon_numberr)
+                                save(fname + '_common_sa', common_numberr)
+                                save(fname + '_num_purge_sa', num_purger)
+
+                                print(f'beam_search k: {k}, relaxed: True, type of run {run}')
+                                if alt_crews == None and not multiClass:
+                                    print('sa seeded beam search obj: ', sa_r_algo_obj)
+                                elif multiClass and type(net_after.tripfile) == list:
+                                    test_net = deepcopy(net_after)
+                                    sa_r_algo_obj_mc, _, _ = eval_sequence(
+                                        test_net, sa_r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                                    sa_r_algo_obj_mc.insert(0, sa_r_algo_obj)
+                                    print('sa seeded beam search obj: ', sa_r_algo_obj_mc)
+                                else:
+                                    sa_r_algo_obj_mult = [0]*(len(alt_crews)+1)
+                                    sa_r_algo_obj_mult[0] = sa_r_algo_obj
+                                    for num in range(len(alt_crews)):
+                                        test_net = deepcopy(net_after)
+                                        sa_r_algo_obj_mult[num+1], _, _ = eval_sequence(
+                                            test_net, sa_r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                                    print('sa seeded beam search obj: ', sa_r_algo_obj_mult)
+
+                            else:
+                                r_algo_num_tap += r_search_tap_solved
+                                r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed
+                                save(fname + '_obj', r_algo_obj)
+                                save(fname + '_path', r_algo_path)
+                                save(fname + '_num_tap', r_algo_num_tap)
+                                save(fname + '_elapsed', r_algo_elapsed)
+                                save(fname + '_totchild', tot_childr)
+                                save(fname + '_uncommon', uncommon_numberr)
+                                save(fname + '_common', common_numberr)
+                                save(fname + '_num_purge', num_purger)
 
                             # else:
                             #     r_algo_obj = load(fname + '_obj')
@@ -3893,37 +3604,120 @@ if __name__ == '__main__':
                             #     r_algo_num_tap = load(fname + '_num_tap')
                             #     r_algo_elapsed = load(fname + '_elapsed')
 
-                            print(f'beam_search k: {k}, relaxed: True')
-                            print('obj: ', r_algo_obj)
-                            experiment_dict[a_pair] = [r_algo_obj, r_algo_num_tap, r_algo_elapsed]
+                                print(f'beam_search k: {k}, relaxed: True, type of run {run}')
+                                if alt_crews == None and not multiClass:
+                                    print('beam search obj: ', r_algo_obj)
+                                elif multiClass and type(net_after.tripfile) == list:
+                                    test_net = deepcopy(net_after)
+                                    r_algo_obj_mc, _, _ = eval_sequence(
+                                        test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                                    r_algo_obj_mc.insert(0, r_algo_obj)
+                                    print('beam search obj: ', (r_algo_obj_mc))
+                                else:
+                                    r_algo_obj_mult = [0]*(len(alt_crews)+1)
+                                    r_algo_obj_mult[0] = r_algo_obj
+                                    for num in range(len(alt_crews)):
+                                        test_net = deepcopy(net_after)
+                                        r_algo_obj_mult[num+1], _, _ = eval_sequence(
+                                            test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=alt_crews[num])
+                                    print('beam search obj: ', r_algo_obj_mult)
+
+                                experiment_dict[a_pair] = [r_algo_obj, r_algo_num_tap, r_algo_elapsed]
 
                         for k,v in experiment_dict.items():
                             print('Gamma - Beta: {}, obj-tap-elapsed: {}'.format(k,v))
 
 
-                t = PrettyTable()
-                t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
-                if opt:
-                    t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
-                if approx:
-                    t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
-                    t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
-                # if len(damaged_links) < 32:
-                #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
-                if full:
-                    t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
-                if beam_search:
-                    t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
-                if sa:
-                    t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
-                t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
-                t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
-                t.add_row(['IMPORTANCE', importance_obj,
-                           importance_elapsed, importance_num_tap])
-                t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
-                t.set_style(MSWORD_FRIENDLY)
-                print(t)
+                if multiClass and type(net_after.tripfile) == list:
+                    t = PrettyTable()
+                    if damaged_dict_preset=='':
+                        t.title = net_name + ' with ' + str(num_broken) + ' broken bridges (class priorities)'
+                    else:
+                        t.title = net_name + ' with ' + str(num_broken) + ' broken bridges (equal priority)'
+                    t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
+                    if opt:
+                        t.add_row(['OPTIMAL', opt_obj_mc, opt_elapsed, opt_num_tap])
+                    if approx:
+                        t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
+                    # if len(damaged_links) < 32:
+                    #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
+                    if full:
+                        t.add_row(['FULL ALGO', algo_obj_mc, algo_elapsed, algo_num_tap])
+                    if beam_search:
+                        t.add_row(['BeamSearch_relaxed', r_algo_obj_mc, r_algo_elapsed, r_algo_num_tap])
+                        try:
+                            t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj_mc, sa_r_algo_elapsed, sa_r_algo_num_tap])
+                        except:
+                            pass
+                    if sa:
+                        t.add_row(['Simulated Annealing', sa_obj_mc, sa_elapsed, sa_num_tap])
+                    t.add_row(['GREEDY', greedy_obj_mc, greedy_elapsed, greedy_num_tap])
+                    t.add_row(['LG', lg_obj_mc, lg_elapsed, lg_num_tap])
+                    t.add_row(['IMPORTANCE', importance_obj_mc, importance_elapsed, importance_num_tap])
+                    t.add_row(['SPT', SPT_obj_mc, SPT_elapsed, SPT_num_tap])
+                    t.set_style(MSWORD_FRIENDLY)
+                    print(t)
+
+                elif alt_crews == None:
+                    t = PrettyTable()
+                    t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
+                    t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
+                    if opt:
+                        t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
+                    if approx:
+                        t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
+                    # if len(damaged_links) < 32:
+                    #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
+                    if full:
+                        t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
+                    if beam_search:
+                        t.add_row(['BeamSearch_relaxed', r_algo_obj, r_algo_elapsed, r_algo_num_tap])
+                        try:
+                            t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj, sa_r_algo_elapsed, sa_r_algo_num_tap])
+                        except:
+                            pass
+                    if sa:
+                        t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
+                    t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
+                    t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
+                    t.add_row(['IMPORTANCE', importance_obj, importance_elapsed, importance_num_tap])
+                    t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
+                    t.set_style(MSWORD_FRIENDLY)
+                    print(t)
+
+                else:
+                    t = PrettyTable()
+                    t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
+                    t.field_names = ['Method', 'Objectives', 'Run Time', '# TAP']
+                    if opt:
+                        for num in range(len(alt_crews)+1):
+                            if num == 0:
+                                t.add_row(['OPTIMAL '+str(num_crews), opt_obj_mult[num], opt_elapsed_mult[num], opt_num_tap])
+                            else:
+                                t.add_row(['OPTIMAL '+str(alt_crews[num-1]), opt_obj_mult[num], opt_elapsed_mult[num], opt_num_tap])
+                    if approx:
+                        t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
+                    # if len(damaged_links) < 32:
+                    #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
+                    if full:
+                        t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
+                    if beam_search:
+                        t.add_row(['BeamSearch_relaxed', r_algo_obj_mult, r_algo_elapsed, r_algo_num_tap])
+                        try:
+                            t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj_mult, sa_r_algo_elapsed, sa_r_algo_num_tap])
+                        except:
+                            pass
+                    if sa:
+                        t.add_row(['Simulated Annealing', sa_obj_mult, sa_elapsed, sa_num_tap])
+                    t.add_row(['GREEDY', greedy_obj_mult, greedy_elapsed, greedy_num_tap])
+                    t.add_row(['LG', lg_obj_mult, lg_elapsed, lg_num_tap])
+                    t.add_row(['IMPORTANCE', importance_obj_mult, importance_elapsed, importance_num_tap])
+                    t.add_row(['SPT', SPT_obj_mult, SPT_elapsed, SPT_num_tap])
+                    t.set_style(MSWORD_FRIENDLY)
+                    print(t)
 
                 fname = save_dir + '/results.csv'
                 with open(fname, 'w', newline='') as f:
@@ -3944,12 +3738,20 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('approx-LASR: ', LASR_soln)
                     print('---------------------------')
+                if opt:
+                    print('optimal by brute force: ', opt_soln)
+                    print('---------------------------')
                 if full:
                     print('algorithm: ', algo_path)
                     print('---------------------------')
                 if beam_search:
                     print('beamsearch: ', r_algo_path)
                     print('---------------------------')
+                    try:
+                        print('beamsearch with sa seed: ', sa_r_algo_path)
+                        print('---------------------------')
+                    except:
+                        pass
                 if sa:
                     print('simulated annealing: ', sa_soln)
                     print('---------------------------')
@@ -3961,268 +3763,6 @@ if __name__ == '__main__':
                 print('---------------------------')
                 print('shortest processing time: ', SPT_soln)
 
+        if graphing:
+            plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
 
-        else:
-            damaged_dict_ = get_broken_links(JSONFILE, scenario_file)
-            # num_broken = len(damaged_dict)
-
-            opt = True
-            if num_broken > 8:
-                opt = False
-
-
-            memory = {}
-            net = create_network(NETFILE, TRIPFILE)
-
-            all_links = damaged_dict_.keys()
-            damaged_links = np.random.choice(list(all_links), num_broken, replace=False)
-            # repair_days = [net.link[a_link].length for a_link in damaged_links]
-            removals = []
-
-            # net.not_fixed = set([])
-            # solve_UE(net=net)
-            # file_created = False
-            # f = 'flows.txt'
-            # st = time.time()
-            # while not file_created:
-            #     if os.path.exists(f):
-            #         file_created = True
-
-            #     if time.time()-st >10:
-            #         popen = subprocess.call(args, stdout=subprocess.DEVNULL)
-
-            #     if file_created:
-            #         with open(f, "r") as flow_file:
-            #             for line in flow_file.readlines():
-            #                 try:
-            #                     ij = str(line[:line.find(' ')])
-            #                     line = line[line.find(' '):].strip()
-            #                     flow = float(line[:line.find(' ')])
-            #                     line = line[line.find(' '):].strip()
-            #                     cost = float(line.strip())
-            #                     net.link[ij].flow = flow
-            #                     net.link[ij].cost = cost
-            #                 except:
-            #                     break
-
-            #         os.remove('flows.txt')
-
-            # for ij in damaged_links:
-            #     if net.link[ij].flow == 0:
-            #         removals.append(ij)
-
-
-
-
-            # min_rd = min(repair_days)
-            # max_rd = max(repair_days)
-            # med_rd = np.median(repair_days)
-            damaged_dict = {}
-
-            for a_link in damaged_links:
-                if a_link in removals:
-                    continue
-                damaged_dict[a_link] = damaged_dict_[a_link]
-
-                # repair_days = net.link[a_link].length
-                # if repair_days > med_rd:
-                #     repair_days += (max_rd - repair_days) * 0.3
-                # y = ((repair_days - min_rd) / (min_rd - max_rd)
-                #      * (MIN_DAYS - MAX_DAYS) + MIN_DAYS)
-                # mu = y
-                # std = y * 0.3
-                # damaged_dict[a_link] = np.random.normal(mu, std, 1)[0]
-
-            del damaged_dict_
-            num_broken = len(damaged_dict)
-
-            SCENARIO_DIR = os.path.join(NETWORK_DIR, strength)
-            ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
-            os.makedirs(ULT_SCENARIO_DIR, exist_ok=True)
-
-            repetitions = get_folders(ULT_SCENARIO_DIR)
-
-            if len(repetitions) == 0:
-                max_rep = -1
-            else:
-                num_scenario = [int(i) for i in repetitions]
-                max_rep = max(num_scenario)
-            cur_scnario_num = max_rep + 1
-
-            ULT_SCENARIO_REP_DIR = os.path.join(
-                ULT_SCENARIO_DIR, str(cur_scnario_num))
-
-            os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
-
-            damaged_links = damaged_dict.keys()
-            num_damaged = len(damaged_links)
-
-            save_dir = ULT_SCENARIO_REP_DIR
-
-
-
-            if before_after:
-                damaged_links = damaged_dict.keys()
-                num_damaged = len(damaged_links)
-                net_after, after_eq_tstt = state_after(damaged_links, save_dir)
-                net_before, before_eq_tstt = state_before(damaged_links, save_dir)
-                t = PrettyTable()
-                t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                t.field_names = ['Before EQ TSTT', 'After EQ TSTT']
-                t.add_row([before_eq_tstt, after_eq_tstt])
-                print(t)
-            else:
-                artLinkDict = makeArtLinks()
-                wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, benefit_analysis_st = get_wb(damaged_links, save_dir, approx, relax=False)
-                benefit_analysis_elapsed = time.time() - benefit_analysis_st
-
-
-                # approx solution
-                if approx:
-                    model, meany, stdy = preprocessing(damaged_links, net_after)
-                    approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
-                        net_after, after_eq_tstt, before_eq_tstt, is_approx=True)
-
-                    print('approx obj: {}, approx path: {}'.format(
-                        approx_obj, approx_soln))
-
-                ### Shortest processing time solution ###
-                SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before)
-                print('SPT_obj: ', SPT_obj)
-
-                ### Get greedy solution ###
-                greedy_obj, greedy_soln, greedy_elapsed, greedy_num_tap = greedy_heuristic(
-                    net_after, after_eq_tstt, before_eq_tstt)
-
-                ### Get feasible solution using importance factor ###
-                importance_obj, importance_soln, importance_elapsed, importance_num_tap = importance_factor_solution(
-                    net_before, after_eq_tstt, before_eq_tstt)
-
-                best_benefit_taps = num_damaged
-                worst_benefit_taps = num_damaged
-
-                ## Get optimal solution via brute force ###
-                if opt:
-                    opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
-                        net_after, after_eq_tstt, before_eq_tstt)
-
-                    print('optimal obj: {}, optimal path: {}'.format(opt_obj, opt_soln))
-
-                # feasible_soln_taps = num_damaged * (num_damaged + 1) / 2.0
-                if full:
-                    print('full')
-                    algo_num_tap = best_benefit_taps + worst_benefit_taps
-
-                    fname = save_dir + '/algo_solution'
-
-                    if not os.path.exists(fname + extension):
-                        search_start = time.time()
-                        algo_path, algo_obj, search_tap_solved, _, _, _, _ = search(
-                            start_node, end_node, bfs)
-                        search_elapsed = time.time() - search_start + importance_elapsed
-
-                        net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
-                        net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
-
-
-                        first_net = deepcopy(net_after)
-                        first_net.relax = False
-                        algo_obj, _, _ = eval_sequence(
-                            first_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
-
-                        algo_num_tap += search_tap_solved + importance_num_tap
-                        algo_elapsed = search_elapsed + benefit_analysis_elapsed
-
-
-                        save(fname + '_obj', algo_obj)
-                        save(fname + '_path', algo_path)
-                        save(fname + '_num_tap', algo_num_tap)
-                        save(fname + '_elapsed', algo_elapsed)
-                    else:
-                        algo_obj = load(fname + '_obj')
-                        algo_path = load(fname + '_path')
-                        algo_num_tap = load(fname + '_num_tap')
-                        algo_elapsed = load(fname + '_elapsed')
-
-
-
-
-                if beam_search:
-                    del memory
-                    memory = {}
-
-                    wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, benefit_analysis_st = get_wb(damaged_links, save_dir, approx, relax=False, bsearch=True)
-                    wb_update = deepcopy(wb)
-                    bb_update = deepcopy(bb)
-                    benefit_analysis_elapsed = time.time() - benefit_analysis_st
-
-                    beamsearch_num_tap = best_benefit_taps + worst_benefit_taps
-                    best_bound = lg_obj
-
-                    fname = save_dir + '/beamsearch_solution'
-
-                    start_node.relax = False
-                    end_node.relax = False
-
-                    if not os.path.exists(fname + extension):
-                        search_start = time.time()
-                        beamsearch_path, beamsearch_obj, beamsearch_tap_solved, _, _, _, _ = search(
-                            start_node, end_node, best_bound, beam_search=beam_search, beam_k=k)
-                        search_elapsed = time.time() - search_start + importance_elapsed
-
-                        net_after, after_eq_tstt = state_after(damaged_links, save_dir, real=True)
-                        net_before, before_eq_tstt = state_before(damaged_links, save_dir, real=True)
-
-                        first_net = deepcopy(net_after)
-                        first_net.relax = False
-                        beamsearch_obj, _, _ = eval_sequence(
-                            first_net, beamsearch_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
-
-
-                        beamsearch_num_tap += beamsearch_tap_solved + importance_num_tap
-                        beamsearch_elapsed = search_elapsed + benefit_analysis_elapsed
-
-                        save(fname + '_obj', beamsearch_obj)
-                        save(fname + '_path', beamsearch_path)
-                        save(fname + '_num_tap', beamsearch_num_tap)
-                        save(fname + '_elapsed', beamsearch_elapsed)
-                    else:
-                        beamsearch_obj = load(fname + '_obj')
-                        beamsearch_path = load(fname + '_path')
-                        beamsearch_num_tap = load(fname + '_num_tap')
-                        beamsearch_elapsed = load(fname + '_elapsed')
-
-
-
-                t = PrettyTable()
-                t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
-                t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
-                if opt:
-                    t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
-                if approx:
-                    t.add_row(['APPROX', approx_obj, approx_elapsed, approx_num_tap])
-                if beam_search:
-                    t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
-                if full:
-                    t.add_row(['ALGORITHM', algo_obj, algo_elapsed, algo_num_tap])
-                #t.add_row(['ALGORITHM_low_gap', r_algo_obj,
-                #            r_algo_elapsed, r_algo_num_tap])
-                t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
-                t.add_row(['IMPORTANCE', importance_obj,
-                           importance_elapsed, importance_num_tap])
-                t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
-                t.set_style(MSWORD_FRIENDLY)
-                print(t)
-
-                print('PATHS')
-                if full:
-                    print('algorithm: ', algo_path)
-                    print('---------------------------')
-                if beam_search:
-                    print('beamsearch: ', beamsearch_path)
-                    print('---------------------------')
-                print('greedy: ', greedy_soln)
-                print('---------------------------')
-                print('importance factors: ', importance_soln)
-                print('---------------------------')
-                print('shortest processing time', SPT_soln)
