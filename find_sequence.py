@@ -2622,6 +2622,12 @@ def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None
     save_fig(save_dir, 'timevsOBJ', tight_layout=True)
 
 
+def percentChange(a,b):
+    """returns percent change from a to b"""
+    res = 100*(np.array(b)-np.array(a))/np.array(a)
+    return np.round(res,2)
+
+
 if __name__ == '__main__':
 
     net_name = args.net_name
@@ -3186,7 +3192,8 @@ if __name__ == '__main__':
                 benefit_analysis_st = time.time()
                 wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links = get_wb(damaged_links, save_dir)
                 benefit_analysis_elapsed = time.time() - benefit_analysis_st
-                plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
+                if damaged_dict_preset=='':
+                    plotNodesLinks(save_dir, netg, damaged_links, coord_dict, names=True)
 
                 ### approx solution methods ###
                 if approx:
@@ -3762,6 +3769,127 @@ if __name__ == '__main__':
                 print('importance factors: ', importance_soln)
                 print('---------------------------')
                 print('shortest processing time: ', SPT_soln)
+
+        ### read soln paths and get obj values for weighted classes after the unweighted class run ###
+        if multiClass == True and damaged_dict_preset != '':
+            # read soln paths
+            if approx:
+                LAFO_soln_ineq = load(damaged_dict_preset + '/' + 'LAFO_bound_path')
+                LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
+            if opt:
+                opt_soln_ineq = load(damaged_dict_preset + '/' + 'min_seq_path')
+            if full:
+                algo_path_ineq = load(damaged_dict_preset + '/' + 'algo_solution_path')
+            if beam_search:
+                r_algo_path_ineq = load(damaged_dict_preset + '/' + 'r_algo_solution_k2_path')
+                try:
+                    sa_r_algo_path_ineq = load(damaged_dict_preset + '/' + 'sa_r_algo_solution_k2_path')
+                except:
+                    pass
+            if sa:
+                sa_soln_ineq = load(damaged_dict_preset + '/' + 'sim_anneal_solution_path')
+            greedy_soln_ineq = load(damaged_dict_preset + '/' + 'greedy_solution_path')
+            lg_soln_ineq = load(damaged_dict_preset + '/' + 'lazygreedy_solution_path')
+            importance_soln_ineq = load(damaged_dict_preset + '/' + 'importance_factor_bound_path')
+            SPT_soln_ineq = load(damaged_dict_preset + '/' + 'SPT_bound_path')
+
+            # get obj values
+            if approx:
+                LAFO_obj_temp, _, _ = eval_sequence(
+                    net_after, LAFO_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                LAFO_obj_ineq, _, _ = eval_sequence(
+                    net_after, LAFO_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                LAFO_obj_ineq.insert(0, LAFO_obj_temp)
+                LASR_obj_temp, _, _ = eval_sequence(
+                    net_after, LASR_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                LASR_obj_ineq, _, _ = eval_sequence(
+                    net_after, LASR_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                LASR_obj_ineq.insert(0, LASR_obj_temp)
+            if opt:
+                opt_obj_temp, _, _ = eval_sequence(
+                    net_after, opt_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                opt_obj_ineq, _, _ = eval_sequence(
+                    net_after, opt_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                opt_obj_ineq.insert(0, opt_obj_temp)
+            if full:
+                algo_obj_temp, _, _ = eval_sequence(
+                    net_after, algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                algo_obj_ineq, _, _ = eval_sequence(
+                    net_after, algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                algo_obj_ineq.insert(0, algo_obj_temp)
+            if beam_search:
+                r_algo_obj_temp, _, _ = eval_sequence(
+                    net_after, r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                r_algo_obj_ineq, _, _ = eval_sequence(
+                    net_after, r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                r_algo_obj_ineq.insert(0, r_algo_obj_temp)
+                try:
+                    sa_r_algo_obj_temp, _, _ = eval_sequence(
+                        net_after, sa_r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                    sa_r_algo_obj_ineq, _, _ = eval_sequence(
+                        net_after, sa_r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                    sa_r_algo_obj_ineq.insert(0, sa_r_algo_obj_temp)
+                except:
+                    pass
+            if sa:
+                sa_obj_temp, _, _ = eval_sequence(
+                    net_after, sa_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+                sa_obj_ineq, _, _ = eval_sequence(
+                    net_after, sa_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+                sa_obj_ineq.insert(0, sa_obj_temp)
+
+            greedy_obj_temp, _, _ = eval_sequence(
+                net_after, greedy_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+            greedy_obj_ineq, _, _ = eval_sequence(
+                net_after, greedy_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+            greedy_obj_ineq.insert(0, greedy_obj_temp)
+
+            lg_obj_temp, _, _ = eval_sequence(
+                net_after, lg_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+            lg_obj_ineq, _, _ = eval_sequence(
+                net_after, lg_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+            lg_obj_ineq.insert(0, lg_obj_temp)
+
+            importance_obj_temp, _, _ = eval_sequence(
+                net_after, importance_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+            importance_obj_ineq, _, _ = eval_sequence(
+                net_after, importance_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+            importance_obj_ineq.insert(0, importance_obj_temp)
+
+            SPT_obj_temp, _, _ = eval_sequence(
+                net_after, SPT_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
+            SPT_obj_ineq, _, _ = eval_sequence(
+                net_after, SPT_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
+            SPT_obj_ineq.insert(0, SPT_obj_temp)
+
+            ### display results for weighted vs unweighted classes ###
+            t = PrettyTable()
+            t.title = net_name + ' with ' + str(num_broken) + ' broken bridges (equal vs unequal priorities)'
+            t.field_names = ['Method', 'Equal Class Priority OBJ', 'Unequal Class Priority OBJ', '% overall change, % change by class']
+            if opt:
+                t.add_row(['OPTIMAL', opt_obj_mc, opt_obj_ineq, percentChange(opt_obj_mc, opt_obj_ineq)])
+            if approx:
+                t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_obj_ineq, percentChange(LAFO_obj_mc, LAFO_obj_ineq)])
+                t.add_row(['approx-LASR', LASR_obj_mc, LASR_obj_ineq], percentChange(LASR_obj_mc, LASR_obj_ineq))
+            # if len(damaged_links) < 32:
+            #     t.add_row(['BeamSearch', beamsearch_obj, beamsearch_elapsed, beamsearch_num_tap])
+            if full:
+                t.add_row(['FULL ALGO', algo_obj_mc, algo_obj_ineq, percentChange(algo_obj_mc, algo_obj_ineq)])
+            if beam_search:
+                t.add_row(['BeamSearch_relaxed', r_algo_obj_mc, r_algo_obj_ineq, percentChange(r_algo_obj_mc, r_algo_obj_ineq)])
+                try:
+                    t.add_row(['BeamSearch_sa_seed', sa_r_algo_obj_mc, sa_r_algo_obj_ineq, percentChange(sa_r_algo_obj_mc, sa_r_algo_obj_ineq)])
+                except:
+                    pass
+            if sa:
+                t.add_row(['Simulated Annealing', sa_obj_mc, sa_obj_ineq, percentChange(sa_obj_mc, sa_obj_ineq)])
+            t.add_row(['GREEDY', greedy_obj_mc, greedy_obj_ineq, percentChange(greedy_obj_mc, greedy_obj_ineq)])
+            t.add_row(['LG', lg_obj_mc, lg_obj_ineq, percentChange(lg_obj_mc, lg_obj_ineq)])
+            t.add_row(['IMPORTANCE', importance_obj_mc, importance_obj_ineq, percentChange(importance_obj_mc, importance_obj_ineq)])
+            t.add_row(['SPT', SPT_obj_mc, SPT_obj_ineq, percentChange(SPT_obj_mc, SPT_obj_ineq)])
+            t.set_style(MSWORD_FRIENDLY)
+            print(t)
+
 
         if graphing:
             plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
