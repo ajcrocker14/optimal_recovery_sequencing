@@ -2625,7 +2625,7 @@ def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None
 def percentChange(a,b):
     """returns percent change from a to b"""
     res = 100*(np.array(b)-np.array(a))/np.array(a)
-    return np.round(res,2)
+    return np.round(res,3)
 
 
 if __name__ == '__main__':
@@ -3216,7 +3216,6 @@ if __name__ == '__main__':
                         test_net = deepcopy(net_after)
                         LAFO_obj_mc, _, _ = eval_sequence(
                             test_net, LAFO_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        LAFO_obj_mc.insert(0, LAFO_obj)
                         print('LAFO_obj: ', LAFO_obj_mc)
                     else:
                         LAFO_obj_mult = [0]*(len(alt_crews)+1)
@@ -3238,7 +3237,6 @@ if __name__ == '__main__':
                         test_net = deepcopy(net_after)
                         LASR_obj_mc, _, _ = eval_sequence(
                             test_net, LASR_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        LASR_obj_mc.insert(0, LASR_obj)
                         print('LASR_obj: ', LASR_obj_mc)
                     else:
                         LASR_obj_mult = [0]*(len(alt_crews)+1)
@@ -3258,17 +3256,13 @@ if __name__ == '__main__':
                 SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
                     net_before, after_eq_tstt, before_eq_tstt, time_net_before)
                 if alt_crews == None and not multiClass:
-                    print('incorrectly entered  alt_crews == None and not multiClass if for SPT')
                     print('SPT_obj: ', SPT_obj)
                 elif multiClass and type(net_after.tripfile) == list:
-                    print('correctly entered multiclass elif for SPT')
                     test_net = deepcopy(net_after)
                     SPT_obj_mc, _, _ = eval_sequence(
                         test_net, SPT_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                    SPT_obj_mc.insert(0, SPT_obj)
                     print('SPT_obj: ', SPT_obj_mc)
                 else:
-                    print('incorrectly entered multiCREW else for SPT')
                     SPT_obj_mult = [0]*(len(alt_crews)+1)
                     SPT_obj_mult[0] = SPT_obj
                     for num in range(len(alt_crews)):
@@ -3280,14 +3274,13 @@ if __name__ == '__main__':
 
                 ### Lazy greedy solution ###
                 lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
-                    #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time)
+                    #net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time
                 if alt_crews == None and not multiClass:
                     print('lazy_greedy_obj: ', lg_obj)
                 elif multiClass and type(net_after.tripfile) == list:
                     test_net = deepcopy(net_after)
                     lg_obj_mc, _, _ = eval_sequence(
                         test_net, lg_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                    lg_obj_mc.insert(0, lg_obj)
                     print('lazy_greedy_obj: ', lg_obj_mc)
                 else:
                     lg_obj_mult = [0]*(len(alt_crews)+1)
@@ -3315,7 +3308,6 @@ if __name__ == '__main__':
                     test_net = deepcopy(net_after)
                     greedy_obj_mc, _, _ = eval_sequence(
                         test_net, greedy_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                    greedy_obj_mc.insert(0, greedy_obj)
                     print('greedy_obj: ', greedy_obj_mc)
                 else:
                     greedy_obj_mult = [0]*(len(alt_crews)+1)
@@ -3346,7 +3338,6 @@ if __name__ == '__main__':
                     test_net = deepcopy(net_after)
                     importance_obj_mc, _, _ = eval_sequence(
                         test_net, importance_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                    importance_obj_mc.insert(0, importance_obj)
                     print('importance_obj: ', importance_obj_mc)
                 else:
                     importance_obj_mult = [0]*(len(alt_crews)+1)
@@ -3375,7 +3366,6 @@ if __name__ == '__main__':
                         test_net = deepcopy(net_after)
                         opt_obj_mc, _, _ = eval_sequence(
                             test_net, opt_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        opt_obj_mc.insert(0, opt_obj)
                         print('optimal obj and demand class breakdown with {} crew(s): {}'.format(num_crews, opt_obj_mc))
                     if alt_crews != None:
                         opt_obj_mult = [0]*(len(alt_crews)+1)
@@ -3419,7 +3409,6 @@ if __name__ == '__main__':
                         test_net = deepcopy(net_after)
                         sa_obj_mc, _, _ = eval_sequence(
                             test_net, sa_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        sa_obj_mc.insert(0, sa_obj)
                         print('simulated annealing obj: ', sa_obj_mc)
                     else:
                         sa_obj_mult = [0]*(len(alt_crews)+1)
@@ -3475,7 +3464,6 @@ if __name__ == '__main__':
                         test_net = deepcopy(net_after)
                         algo_obj_mc, _, _ = eval_sequence(
                             test_net, algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                        algo_obj_mc.insert(0, algo_obj)
                         print('full obj: ', algo_obj_mc)
                     else:
                         algo_obj_mult = [0]*(len(alt_crews)+1)
@@ -3582,7 +3570,6 @@ if __name__ == '__main__':
                                     test_net = deepcopy(net_after)
                                     sa_r_algo_obj_mc, _, _ = eval_sequence(
                                         test_net, sa_r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                                    sa_r_algo_obj_mc.insert(0, sa_r_algo_obj)
                                     print('sa seeded beam search obj: ', sa_r_algo_obj_mc)
                                 else:
                                     sa_r_algo_obj_mult = [0]*(len(alt_crews)+1)
@@ -3618,7 +3605,6 @@ if __name__ == '__main__':
                                     test_net = deepcopy(net_after)
                                     r_algo_obj_mc, _, _ = eval_sequence(
                                         test_net, r_algo_path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                                    r_algo_obj_mc.insert(0, r_algo_obj)
                                     print('beam search obj: ', (r_algo_obj_mc))
                                 else:
                                     r_algo_obj_mult = [0]*(len(alt_crews)+1)
@@ -3795,72 +3781,35 @@ if __name__ == '__main__':
 
             # get obj values
             if approx:
-                LAFO_obj_temp, _, _ = eval_sequence(
-                    net_after, LAFO_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 LAFO_obj_ineq, _, _ = eval_sequence(
                     net_after, LAFO_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                LAFO_obj_ineq.insert(0, LAFO_obj_temp)
-                LASR_obj_temp, _, _ = eval_sequence(
-                    net_after, LASR_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 LASR_obj_ineq, _, _ = eval_sequence(
                     net_after, LASR_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                LASR_obj_ineq.insert(0, LASR_obj_temp)
             if opt:
-                opt_obj_temp, _, _ = eval_sequence(
-                    net_after, opt_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 opt_obj_ineq, _, _ = eval_sequence(
                     net_after, opt_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                opt_obj_ineq.insert(0, opt_obj_temp)
             if full:
-                algo_obj_temp, _, _ = eval_sequence(
-                    net_after, algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 algo_obj_ineq, _, _ = eval_sequence(
                     net_after, algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                algo_obj_ineq.insert(0, algo_obj_temp)
             if beam_search:
-                r_algo_obj_temp, _, _ = eval_sequence(
-                    net_after, r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 r_algo_obj_ineq, _, _ = eval_sequence(
                     net_after, r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                r_algo_obj_ineq.insert(0, r_algo_obj_temp)
                 try:
-                    sa_r_algo_obj_temp, _, _ = eval_sequence(
-                        net_after, sa_r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                     sa_r_algo_obj_ineq, _, _ = eval_sequence(
                         net_after, sa_r_algo_path_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                    sa_r_algo_obj_ineq.insert(0, sa_r_algo_obj_temp)
                 except:
                     pass
             if sa:
-                sa_obj_temp, _, _ = eval_sequence(
-                    net_after, sa_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
                 sa_obj_ineq, _, _ = eval_sequence(
                     net_after, sa_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-                sa_obj_ineq.insert(0, sa_obj_temp)
-
-            greedy_obj_temp, _, _ = eval_sequence(
-                net_after, greedy_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
             greedy_obj_ineq, _, _ = eval_sequence(
                 net_after, greedy_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-            greedy_obj_ineq.insert(0, greedy_obj_temp)
-
-            lg_obj_temp, _, _ = eval_sequence(
-                net_after, lg_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
             lg_obj_ineq, _, _ = eval_sequence(
                 net_after, lg_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-            lg_obj_ineq.insert(0, lg_obj_temp)
-
-            importance_obj_temp, _, _ = eval_sequence(
-                net_after, importance_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
             importance_obj_ineq, _, _ = eval_sequence(
                 net_after, importance_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-            importance_obj_ineq.insert(0, importance_obj_temp)
-
-            SPT_obj_temp, _, _ = eval_sequence(
-                net_after, SPT_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews)
             SPT_obj_ineq, _, _ = eval_sequence(
                 net_after, SPT_soln_ineq, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, multiClass=multiClass)
-            SPT_obj_ineq.insert(0, SPT_obj_temp)
 
             ### display results for weighted vs unweighted classes ###
             t = PrettyTable()
@@ -3890,6 +3839,9 @@ if __name__ == '__main__':
             t.set_style(MSWORD_FRIENDLY)
             print(t)
 
+            fname = save_dir + '/compare.csv'
+            with open(fname, 'w', newline='') as f:
+                f.write(t.get_csv_string(header=False))
 
         if graphing:
             plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)

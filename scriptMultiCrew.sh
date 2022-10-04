@@ -15,17 +15,17 @@ end=$(($reps-1))
 
 for (( i=0 ; i<=$end ; i++ ));
 do
-python3 find_sequence.py -n $net_name -b $broken -l 1 -r $reps -d 2 -a True --sa True --damaged saved/TransportationNetworks/$net_name/$broken/$i
+python3 find_sequence.py -n $net_name -b $broken -l 1 -r 1 -d 2 -a True --sa True --damaged saved/TransportationNetworks/$net_name/$broken/$i
 done
 
 for (( i=0 ; i<=$end ; i++ ));
 do
-python3 find_sequence.py -n $net_name -b $broken -l 1 -r $reps -d 3 -a True --sa True --damaged saved/TransportationNetworks/$net_name/$broken/$i
+python3 find_sequence.py -n $net_name -b $broken -l 1 -r 1 -d 3 -a True --sa True --damaged saved/TransportationNetworks/$net_name/$broken/$i
 done
 
 for (( i=0 ; i<=$end ; i++ ));
 do
-python3 find_sequence.py -n $net_name -b $broken -l 1 -r $reps -d 4 -a True --sa True --damaged saved/TransportationNetworks/$net_name/$broken/$i
+python3 find_sequence.py -n $net_name -b $broken -l 1 -r 1 -d 4 -a True --sa True --damaged saved/TransportationNetworks/$net_name/$broken/$i
 done
 
 cd saved/TransportationNetworks/$net_name/$broken

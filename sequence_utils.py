@@ -74,6 +74,7 @@ def read_scenario(fname='ScenarioAnalysis.xlsx', sname='Moderate_1'):
 
 
 def findClassTSTT(net, args):
+    """ returns a list of total TSTT, class 1 TSTT, class 2 TSTT, etc. """
     try_again = False
     f = "full_log.txt"
     file_created = False
@@ -111,7 +112,7 @@ def findClassTSTT(net, args):
 
             if type(net.tripfile) == list:
                 num_classes = len(net.tripfile)
-                classTSTT = [0]*num_classes
+                classTSTT = [0]*(num_classes)
                 with open(f, "r") as log_file:
                     temp = log_file.readlines()[-num_classes-1:]
                 for i in range(num_classes):
@@ -122,6 +123,7 @@ def findClassTSTT(net, args):
                     except:
                         print('error encountered in findClassTSTT for demand class {}', i+1)
                         return tstt
+                classTSTT.insert(0,tstt)
             else:
                 print('findClassTSTT function called with only one class of demand present')
                 return tstt
@@ -462,8 +464,8 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             fp.append(curfp * 100)
 
     if multiClass and type(net.tripfile) == list:
-        tot_area = [0]*len(net.tripfile)
-        for j in range(len(net.tripfile)):
+        tot_area = [0]*(len(net.tripfile)+1)
+        for j in range(len(net.tripfile)+1):
             for i in range(len(days_list)):
                 if i == 0:
                     tstt = after_eq_tstt_mc[j]
