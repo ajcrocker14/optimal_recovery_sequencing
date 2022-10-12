@@ -9,6 +9,7 @@ import multiprocessing as mp
 from graphing import *
 import matplotlib.pyplot as plt
 from matplotlib import collections as mc
+from matplotlib import patches as mpatch
 from scipy.special import comb
 import math
 import argparse
@@ -2564,14 +2565,24 @@ def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
     segments = list()
     damaged_segments = list()
     #for ij in [ij for ij in Network.link if Network.link[ij].flow > 0]:
+    if NETWORK.find('Berlin') >= 0:
+        line_width = 0.0025
+    else:
+        line_width = 0.00025
     for ij in [ij for ij in net.link if ij not in damaged_links]:
-        line = [coord_dict[net.link[ij].tail], coord_dict[net.link[ij].head]]
+        line = mpatch.FancyArrow(coord_dict[net.link[ij].tail][0],coord_dict[net.link[ij].tail][1],
+            coord_dict[net.link[ij].head][0]-coord_dict[net.link[ij].tail][0],
+            coord_dict[net.link[ij].head][1]-coord_dict[net.link[ij].tail][1],
+            length_includes_head = True, width = line_width)
         segments.append(line)
     for ij in damaged_links:
-        line = [coord_dict[net.link[ij].tail], coord_dict[net.link[ij].head]]
+        line = mpatch.FancyArrow(coord_dict[net.link[ij].tail][0],coord_dict[net.link[ij].tail][1],
+            coord_dict[net.link[ij].head][0]-coord_dict[net.link[ij].tail][0],
+            coord_dict[net.link[ij].head][1]-coord_dict[net.link[ij].tail][1],
+            length_includes_head = True, width = line_width)
         damaged_segments.append(line)
-    lc = mc.LineCollection(segments)
-    lc_damaged = mc.LineCollection(damaged_segments, color = 'tab:red')
+    lc = mc.PatchCollection(segments)
+    lc_damaged = mc.PatchCollection(damaged_segments, color = 'tab:red')
     ax.add_collection(lc)
     ax.add_collection(lc_damaged)
     ax.set_axis_off()

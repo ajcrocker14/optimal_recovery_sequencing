@@ -459,6 +459,19 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
 
         tstt_list.append(tstt_after)
 
+        # check for tstt's less than before eq tstt's by greater than 0.001%
+        if multiClass:
+            for i in range(len(tstt_after)):
+                if (before_eq_tstt_mc[i] - tstt_after[i])/before_eq_tstt_mc[i] > 0.00001:
+                    print('tstt after repairing link {} is lower than tstt before eq by {} ({} percent) for class {}'.format(
+                        str(link_id),round(before_eq_tstt_mc[i]-tstt_after[i],2),round((before_eq_tstt_mc[i] - tstt_after[i])/before_eq_tstt_mc[i]*100,5),i))
+                    f = 'troubleflows'+str(i)+'.txt'
+                    count = 0
+                    while os.path.exists(f):
+                        count += 1
+                        f = 'troubleflows'+str(i)+'-'+str(count)+'.txt'
+                    shutil.copy('flows.txt', f)
+
         if importance:
             curfp += if_list[link_id]
             fp.append(curfp * 100)
