@@ -1,8 +1,8 @@
 #!/bin/bash
-net_name="Berlin-Mitte-Center2"
+net_name="Berlin-Mitte-Center3"
 echo $net_name
-broken=10
-reps=5
+broken=12
+reps=10
 
 cd saved/TransportationNetworks/$net_name
 rm -r $broken

@@ -13,8 +13,8 @@ import matplotlib.pyplot as plt
 import time
 import multiprocessing as mp
 
-SMALL = 1e-10
-SEQ_INFINITY = 1e+8
+#SMALL = 1e-5
+SEQ_INFINITY = 99999
 ALPHA = 0.15
 BETA = 4.0
 
@@ -220,6 +220,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
 
     if len(net.not_fixed) > 0 or len(net.art_links) > 0:
         df = pd.read_csv(networkFileName, delimiter='\t', skipinitialspace=True)
+
         for a_link in net.not_fixed:
             home = a_link[a_link.find("'(") + 2:a_link.find(",")]
             to = a_link[a_link.find(",") + 1:]
@@ -233,7 +234,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
                 df = df.replace({"":np.nan}) # replace any empty strings with nan
                 ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))].index.tolist()[0]
 
-            df.loc[ind, 'Unnamed: 3'] = SMALL
+            #df.loc[ind, 'Unnamed: 3'] = SMALL
             df.loc[ind, 'Unnamed: 5'] = SEQ_INFINITY
 
         for link in net.art_links.keys():
@@ -308,6 +309,9 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('<CONVERGENCE GAP> ')
             f2.write(prec)
             f2.write('\n')
+            f2.write('<MAX RUN TIME> ')
+            f2.write(str(60))
+            f2.write('\n')
             f2.write('<NUMBER OF BATCHES> ')
             f2.write(str(len(net.tripfile)))
             f2.write('\n')
@@ -319,7 +323,6 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('\n')
             f2.write('<DATA PATH> ')
             f2.write('./')
-
     else:
         if eval_seq:
             #args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " " + str(CORES))
@@ -341,6 +344,9 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('<CONVERGENCE GAP> ')
             f2.write(prec)
             f2.write('\n')
+            f2.write('<MAX RUN TIME> ')
+            f2.write(str(60))
+            f2.write('\n')
             f2.write('<NUMBER OF THREADS> ')
             f2.write(str(CORES))
             f2.write('\n')
@@ -354,13 +360,11 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
-    # print('tap elapsed: {}, wu: {}, eval_seq: {}, relax: {} '.format(elapsed, wu, eval_seq, relax))
     if multiClass:
         classTSTT = findClassTSTT(net, args)
         return classTSTT
     else:
         tstt = net_update(net, args, flows)
-
     return tstt
 
 
