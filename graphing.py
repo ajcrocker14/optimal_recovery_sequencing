@@ -271,8 +271,6 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     algo = {}
 
 
-
-
     if biginstance:
         dict_list = [r_heuristic2, greedy, lgreedy, importance_factor]
 
@@ -284,7 +282,6 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
 
     key_list = ['_obj', '_num_tap', '_elapsed']
     key_list2 = ['_common', '_uncommon']
-
 
 
     for method_dict in dict_list:
@@ -334,13 +331,10 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
         for rep in range(reps + 1):
              optimal.append(load(os.path.join(file_path, str(rep)) + '/' + 'min_seq_obj'))
 
-
-
     else:
         # optimal = np.minimum(np.array(r_heuristic4['_obj']), np.minimum(np.array(heuristic4['_obj']), np.minimum(np.array(r_heuristic8['_obj']), np.minimum(np.array(r_heuristic2['_obj']), np.minimum(
             # np.minimum(np.array(heuristic2['_obj']), np.array(heuristic8['_obj'])), np.array(greedy['_obj']))))))
         if biginstance:
-            
             optimal = np.minimum(np.array(r_heuristic2['_obj']), np.array(greedy['_obj']))
 
         else:
@@ -390,12 +384,11 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
         r += 1
 
 
-
     print(obj_means, obj_stds, tap_means, tap_stds, elapsed_means, elapsed_stds)
     # pdb.set_trace()
 
     obj_means_scaled = obj_means / max(obj_means)
-    
+
     obj_range_above = obj_range_above / max(obj_means)
     obj_range_below = obj_range_below / max(obj_means)
 
@@ -403,7 +396,7 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     tap_range_below  = np.array(tap_range_below)
     tap_range_above = tap_range_above/max(tap_means)
     tap_range_below = tap_range_below/max(tap_means)
-    
+
     elapsed_range_above = np.array(elapsed_range_above)
     elapsed_range_below  = np.array(elapsed_range_below)
     elapsed_range_above = elapsed_range_above/max(elapsed_means)
@@ -628,13 +621,17 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     # save_fig(file_path, 'performance_table_' + 'w_bridge_' + str(broken))
 
 
-def result_sequence_graphs(rep, save_dir):
-    path_pre = os.path.join(save_dir, str(rep)) + '/'
+def result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1):
+    if alt_dir!=None:
+        path_pre = alt_dir + '/'
+    else:
+        path_pre = os.path.join(save_dir, str(rep)) + '/'
+    print(path_pre)
 
-    net_after = (path_pre + 'net_after')
+    net_after = load(path_pre + 'net_after_real')
     net_after.damaged_dict = load(path_pre + 'damaged_dict')
 
-    if len(net_after.damaged_dict) >= 8:
+    if len(net_after.damaged_dict) > 8:
         opt = False
     else:
         opt = True
@@ -642,40 +639,38 @@ def result_sequence_graphs(rep, save_dir):
     if opt:
         opt_soln = load(path_pre + 'min_seq_path')
 
-    algo_r_path = load(path_pre + 'r_algo_solution_path')
-    algo_path = load(path_pre + 'beamsearch_solution_path')
+    r_algo_path = load(path_pre + 'r_algo_solution_k2_path')
+    sa_path = load(path_pre + 'sim_anneal_solution_path')
 
     greedy_soln = load(path_pre + 'greedy_solution_path')
     importance_soln = load(path_pre + 'importance_factor_bound_path')
-    after_eq_tstt = load(path_pre + 'net_after_tstt')
-    before_eq_tstt = load(path_pre + 'net_before_tstt')
+    after_eq_tstt = load(path_pre + 'net_after_real_tstt')
+    before_eq_tstt = load(path_pre + 'net_before_real_tstt')
 
     # GRAPH THE RESULTS
-    # CHANGE
-    opt = False
     if opt:
-        paths = [algo_path, opt_soln, greedy_soln, importance_soln]
-        names = ['ProposedMethod', 'Optimal',
-                 'GreedyMethod', 'ImportanceFactor']
+        paths = [opt_soln, r_algo_path, sa_path, greedy_soln, importance_soln]
+        names = ['Optimal', 'BeamSearch', 'SimAnneal',
+                 'GreedyMethod']
         places = [221, 222, 223, 224]
     else:
-        paths = [algo_path, algo_r_path, greedy_soln, importance_soln]
+        paths = [r_algo_path, sa_path, greedy_soln, importance_soln]
 
-        names = ['ProposedMethod', 'RelaxedMethod', 'GreedyMethod', 'ImportanceFactor']
+        names = ['BeamSearch', 'SimAnneal', 'GreedyMethod', 'ImportanceFactor']
 
         places = [221, 222, 223, 224]
 
-    colors = plt.cm.ocean(np.linspace(0, 0.7, len(algo_path)))
+    colors = plt.cm.ocean(np.linspace(0, 0.7, len(r_algo_path)))
     color_dict = {}
     color_i = 0
-    for alink in algo_path:
+    for alink in r_algo_path:
         color_dict[alink] = colors[color_i]
         color_i += 1
 
     # colors = ['y', 'r', 'b', 'g']
     for path, name, place in zip(paths, names, places):
         tstt_list, days_list = get_marginal_tstts(
-            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict)
+            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, mc_weights=mc_weights)
         graph_current(tstt_list, days_list, before_eq_tstt,
                       after_eq_tstt, path, path_pre, name, False, place, color_dict)
 
@@ -684,9 +679,78 @@ def result_sequence_graphs(rep, save_dir):
 
     for path, name, place in zip(paths, names, places):
         tstt_list, days_list = get_marginal_tstts(
-            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict)
+            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, mc_weights=mc_weights)
         graph_current(tstt_list, days_list, before_eq_tstt,
                       after_eq_tstt, path, path_pre, name, True, place, color_dict)
+
+    save_fig(path_pre, 'Comparison')
+
+
+def multiClass_result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1):
+    print('alt_dir is: ',alt_dir)
+    if alt_dir!=None:
+        path_pre = alt_dir + '/'
+    else:
+        path_pre = os.path.join(save_dir, str(rep)) + '/'
+    path_pre_alt = path_pre[:-2] + '/'
+    print(path_pre)
+    print(path_pre_alt)
+
+    net_after = load(path_pre + 'net_after_real')
+    net_after.damaged_dict = load(path_pre + 'damaged_dict')
+
+    if len(net_after.damaged_dict) > 8:
+        opt = False
+    else:
+        opt = True
+
+    if opt:
+        soln_path = load(path_pre + 'min_seq_path')
+        soln_path_alt = load(path_pre_alt + 'min_seq_path')
+    else:
+        soln_path = load(path_pre + 'sim_anneal_solution_path')
+        soln_path_alt = load(path_pre_alt + 'sim_anneal_solution_path')
+
+    after_eq_tstt = load(path_pre + 'net_after_real_tstt')
+    before_eq_tstt = load(path_pre + 'net_before_real_tstt')
+
+    after_eq_tstt_mcunw = load(path_pre_alt + 'net_after_real_tstt_mcunw')
+    before_eq_tstt_mcunw = load(path_pre_alt + 'net_before_real_tstt_mcunw')
+
+    # GRAPH THE RESULTS
+    paths = [soln_path, soln_path, soln_path, soln_path_alt, soln_path_alt, soln_path_alt]
+    classes = [0,1,2,0,1,2]
+    names = ['Overall-unweighted', 'Class 1-unweighted', 'Class 2-unweighted', 'Overall-weighted', 'Class 1-weighted', 'Class 2-weighted']
+    places = [321, 323, 325, 322, 324, 326]
+
+    colors = plt.cm.ocean(np.linspace(0, 0.7, len(soln_path)))
+    color_dict = {}
+    color_i = 0
+    for alink in soln_path:
+        color_dict[alink] = colors[color_i]
+        color_i += 1
+
+    # colors = ['y', 'r', 'b', 'g']
+    for path, cl, name, place in zip(paths, classes, names, places):
+        tstt_list, days_list = get_marginal_tstts(
+            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, multiClass=True)
+        sub_list = []
+        for el in tstt_list:
+            sub_list.append(el[cl])
+        graph_current(sub_list, days_list, before_eq_tstt_mcunw[cl],
+                      after_eq_tstt_mcunw[cl], path, path_pre, name, False, place, color_dict)
+
+    plt.close()
+    # plt.figure(figsize=(16, 8))
+
+    for path, cl, name, place in zip(paths, classes, names, places):
+        tstt_list, days_list = get_marginal_tstts(
+            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, multiClass=True)
+        sub_list = []
+        for el in tstt_list:
+            sub_list.append(el[cl])
+        graph_current(sub_list, days_list, before_eq_tstt_mcunw[cl],
+                      after_eq_tstt_mcunw[cl], path, path_pre, name, True, place, color_dict)
 
     save_fig(path_pre, 'Comparison')
 
@@ -705,7 +769,6 @@ def get_folders(path):
         pass
 
     return folders
-
 
 
 def get_tables(directory):
@@ -738,25 +801,44 @@ def get_tables(directory):
         print(reps)
 
 
-def get_sequence_graphs(directory):
-    SCENARIO_DIR = directory
-    try:
-        broken_bridges = get_folders(SCENARIO_DIR)
-    except:
-        return
+def get_sequence_graphs(directory, broken, alt_dir=None, multiClass=False, mc_weights=1):
+    if alt_dir != None:
+        if multiClass == False:
+            result_sequence_graphs(1, directory, alt_dir=alt_dir, mc_weights=mc_weights)
+        else:
+            multiClass_result_sequence_graphs(1, directory, alt_dir=alt_dir, mc_weights=mc_weights)
+    else:
+        SCENARIO_DIR = directory
+        #try:
+        #    broken_bridges = get_folders(SCENARIO_DIR)
+        #except:
+        #    return
 
-    if len(broken_bridges) == 0:
-        return
+        #if len(broken_bridges) == 0:
+        #    return
 
-    for broken in broken_bridges:
+        if type(broken)==str:
+            broken_bridges = [broken]
+        else:
+            broken_bridges = broken
 
-        ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, broken)
-        repetitions = get_folders(ULT_SCENARIO_DIR)
+        for broken in broken_bridges:
 
-        if len(repetitions) == 0:
-            return
+            ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, broken)
+            repetitions = get_folders(ULT_SCENARIO_DIR)
 
-        reps = [int(i) for i in repetitions]
+            if len(repetitions) == 0:
+                return
 
-        for rep in reps:
-            result_sequence_graphs(rep, ULT_SCENARIO_DIR)
+            reps = []
+            for i in repetitions:
+                try:
+                    reps.append(int(i))
+                except:
+                    pass
+
+            for rep in reps:
+                if multiClass == False:
+                    result_sequence_graphs(rep, ULT_SCENARIO_DIR, mc_weights=mc_weights)
+                else:
+                    multiClass_result_sequence_graphs(rep, ULT_SCENARIO_DIR, mc_weights=mc_weights)

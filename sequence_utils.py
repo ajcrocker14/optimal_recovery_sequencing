@@ -212,8 +212,9 @@ def net_update(net, args, flows=False):
     return tstt
 
 
-def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=False, multiClass=False):
-    """if multiClass=True, then finds TSTT for each class seperately"""
+def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False, multiClass=False, mc_weights=1):
+    """If type(mc_weights)==list, then finds TSTT for each class separately and weights to
+    find overall TSTT. If multiClass=True, then reports TSTT for each class separately"""
     # modify the net.txt file to send to c code and create parameters file
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
@@ -269,17 +270,15 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
         if os.path.exists(f):
             file_created = True
 
-    if rev:
-        bush_loc = 'after/batch0.bin'
-    else:
-        bush_loc = 'before/batch0.bin'
+    #if rev:
+    #    bush_loc = 'after-batch0.bin'
+    #else:
+    #    bush_loc = 'before-batch0.bin'
 
-    # if wu:
-    #     folder_loc = "tap-b_wu/bin/tap "
-    #     shutil.copy(bush_loc, 'batch0.bin')
-    # else:
     folder_loc = "tap-b/bin/tap "
-        # print('non_wu')
+
+    #if warm_start:
+    #    shutil.copy(bush_loc, 'batch0.bin')
 
     start = time.time()
 
@@ -312,17 +311,24 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('<MAX RUN TIME> ')
             f2.write(str(60))
             f2.write('\n')
+            f2.write('<NUMBER OF THREADS> 1')
+            f2.write('\n')
             f2.write('<NUMBER OF BATCHES> ')
             f2.write(str(len(net.tripfile)))
-            f2.write('\n')
-            f2.write('<NUMBER OF THREADS> ')
-            f2.write(str(CORES))
             f2.write('\n')
             f2.write('<FILE PATH> ')
             f2.write('./')
             f2.write('\n')
             f2.write('<DATA PATH> ')
             f2.write('./')
+            f2.write('\n')
+            #if warm_start:
+            #    f2.write('<WARM START>')
+            #    f2.write('\n')
+            #else:
+            #    f2.write('<STORE MATRICES>')
+            #    f2.write('\n')
+            #    f2.write('<STORE BUSHES>')
     else:
         if eval_seq:
             #args = shlex.split(folder_loc + "1e-7 1 " +"current_net.tntp " + net.tripfile + " " + str(CORES))
@@ -355,16 +361,197 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, wu=True, rev=Fa
             f2.write('\n')
             f2.write('<DATA PATH> ')
             f2.write('./')
+            f2.write('\n')
+            #if warm_start:
+            #    f2.write('<WARM START>')
+            #    f2.write('\n')
+            #else:
+            #    f2.write('<STORE MATRICES>')
+            #    f2.write('\n')
+            #    f2.write('<STORE BUSHES>')
 
     args = shlex.split(folder_loc + "current_params.txt")
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
-    if multiClass:
-        classTSTT = findClassTSTT(net, args)
-        return classTSTT
+    if multiClass or type(mc_weights)==list:
+        try:
+            classTSTT = findClassTSTT(net, args)
+        except:
+            print('error in executing net_update from solve_ue, retrying')
+            shutil.copy('full_log.txt', 'full_log_error.txt')
+            shutil.copy('current_net.tntp', 'current_net_error.tntp')
+            shutil.copy('current_params.txt', 'current_params_error.txt')
+
+            temp = 1
+            if type(net.tripfile) == list:
+                temp = len(net.tripfile)
+
+            if rev:
+                bush_loc = 'after-batch'
+                mat_loc = 'after-matrix'
+            else:
+                bush_loc = 'before-batch'
+                mat_loc = 'before-matrix'
+            for i in range(temp):
+                shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
+                shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
+
+            if type(net.tripfile) == list:
+                with open('current_params.txt','w') as f2:
+                    f2.write('<NETWORK FILE> ')
+                    f2.write('current_net.tntp')
+                    f2.write('\n')
+                    for item in net.tripfile:
+                        f2.write('<TRIPS FILE> ')
+                        f2.write(item)
+                        f2.write('\n')
+                    f2.write('<CONVERGENCE GAP> ')
+                    f2.write(prec)
+                    f2.write('\n')
+                    f2.write('<MAX RUN TIME> ')
+                    f2.write(str(60))
+                    f2.write('\n')
+                    f2.write('<NUMBER OF THREADS> 1')
+                    f2.write('\n')
+                    f2.write('<NUMBER OF BATCHES> ')
+                    f2.write(str(len(net.tripfile)))
+                    f2.write('\n')
+                    f2.write('<FILE PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    f2.write('<DATA PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    if warm_start:
+                        f2.write('<WARM START>')
+                        f2.write('\n')
+            else:
+                with open('current_params.txt','w') as f2:
+                    f2.write('<NETWORK FILE> ')
+                    f2.write('current_net.tntp')
+                    f2.write('\n')
+                    f2.write('<TRIPS FILE> ')
+                    f2.write(net.tripfile)
+                    f2.write('\n')
+                    f2.write('<CONVERGENCE GAP> ')
+                    f2.write(prec)
+                    f2.write('\n')
+                    f2.write('<MAX RUN TIME> ')
+                    f2.write(str(60))
+                    f2.write('\n')
+                    f2.write('<NUMBER OF THREADS> ')
+                    f2.write(str(CORES))
+                    f2.write('\n')
+                    f2.write('<FILE PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    f2.write('<DATA PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    if warm_start:
+                        f2.write('<WARM START>')
+                        f2.write('\n')
+
+            args = shlex.split(folder_loc + "current_params.txt")
+            popen = subprocess.run(args, stdout=subprocess.DEVNULL)
+            shutil.copy('full_log.txt', 'full_log_error2.txt')
+            classTSTT = findClassTSTT(net, args)
+
+        if type(mc_weights)==list:
+            if len(mc_weights)==len(classTSTT)-1:
+                classTSTT[0] = 0
+                for i in range(len(mc_weights)):
+                    classTSTT[0] += mc_weights[i]*classTSTT[i+1]
+            else:
+                print('User has provided {} mc_weights, and there are {} classes of demand. Returning UNWEIGHTED TSTT'.format(len(mc_weights),len(classTSTT)-1))
+        if multiClass:
+            return classTSTT
+        else:
+            return classTSTT[0]
     else:
-        tstt = net_update(net, args, flows)
+        try:
+            tstt = net_update(net, args, flows)
+        except:
+            print('error in executing net_update from solve_ue, retrying')
+            shutil.copy('full_log.txt', 'full_log_error.txt')
+            shutil.copy('current_net.tntp', 'current_net_error.tntp')
+            shutil.copy('current_params.txt', 'current_params_error.txt')
+
+            temp = 1
+            if type(net.tripfile) == list:
+                temp = len(net.tripfile)
+
+            if rev:
+                bush_loc = 'after-batch'
+                mat_loc = 'after-matrix'
+            else:
+                bush_loc = 'before-batch'
+                mat_loc = 'before-matrix'
+            for i in range(temp):
+                shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
+                shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
+
+            if type(net.tripfile) == list:
+                with open('current_params.txt','w') as f2:
+                    f2.write('<NETWORK FILE> ')
+                    f2.write('current_net.tntp')
+                    f2.write('\n')
+                    for item in net.tripfile:
+                        f2.write('<TRIPS FILE> ')
+                        f2.write(item)
+                        f2.write('\n')
+                    f2.write('<CONVERGENCE GAP> ')
+                    f2.write(prec)
+                    f2.write('\n')
+                    f2.write('<MAX RUN TIME> ')
+                    f2.write(str(60))
+                    f2.write('\n')
+                    f2.write('<NUMBER OF THREADS> 1')
+                    f2.write('\n')
+                    f2.write('<NUMBER OF BATCHES> ')
+                    f2.write(str(len(net.tripfile)))
+                    f2.write('\n')
+                    f2.write('<FILE PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    f2.write('<DATA PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    if warm_start:
+                        f2.write('<WARM START>')
+                        f2.write('\n')
+            else:
+                with open('current_params.txt','w') as f2:
+                    f2.write('<NETWORK FILE> ')
+                    f2.write('current_net.tntp')
+                    f2.write('\n')
+                    f2.write('<TRIPS FILE> ')
+                    f2.write(net.tripfile)
+                    f2.write('\n')
+                    f2.write('<CONVERGENCE GAP> ')
+                    f2.write(prec)
+                    f2.write('\n')
+                    f2.write('<MAX RUN TIME> ')
+                    f2.write(str(60))
+                    f2.write('\n')
+                    f2.write('<NUMBER OF THREADS> ')
+                    f2.write(str(CORES))
+                    f2.write('\n')
+                    f2.write('<FILE PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    f2.write('<DATA PATH> ')
+                    f2.write('./')
+                    f2.write('\n')
+                    if warm_start:
+                        f2.write('<WARM START>')
+                        f2.write('\n')
+
+            args = shlex.split(folder_loc + "current_params.txt")
+            popen = subprocess.run(args, stdout=subprocess.DEVNULL)
+            shutil.copy('full_log.txt', 'full_log_error2.txt')
+            tstt = net_update(net, args, flows)
     return tstt
 
 
@@ -414,9 +601,9 @@ def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
     return crew_order_list, which_crew, days_list
 
 
-def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None, multiClass=False):
+def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None, multiClass=False, mc_weights=1):
     """evaluates the total tstt for a repair sequence, does not write to memory
-    if multiClass=True, then evaluates the total area for each class seperately
+    if multiClass=True, then evaluates the total area for each class separately
     approx and multiClass cannot be active simultaneously"""
     tap_solved = 0
     days_list = []
@@ -440,9 +627,9 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
 
     if multiClass and type(net.tripfile) == list:
         net.not_fixed = set(to_visit)
-        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass, mc_weights=mc_weights)
         net.not_fixed = set([])
-        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass, mc_weights=mc_weights)
 
     for link_id in crew_order_list:
         added.append(link_id)
@@ -459,7 +646,7 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             tstt_after = tstt_after[0][0]
         else:
             tap_solved += 1
-            tstt_after = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+            tstt_after = solve_UE(net=net, eval_seq=True, multiClass=multiClass, mc_weights=mc_weights)
 
         tstt_list.append(tstt_after)
 
@@ -504,9 +691,9 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
     return tot_area, tap_solved, tstt_list
 
 
-def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, damaged_dict):
+def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, damaged_dict, multiClass=False, mc_weights=1):
     _, _, tstt_list = eval_sequence(
-        deepcopy(net), path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, multiClass=False)
+        deepcopy(net), path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, multiClass=multiClass, mc_weights=mc_weights)
 
     # tstt_list.insert(0, after_eq_tstt)
 
