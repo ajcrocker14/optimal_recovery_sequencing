@@ -38,7 +38,7 @@ parser.add_argument('-a', '--approx', type=bool,
 parser.add_argument('-r', '--reps', type=int,
                     help='number of scenarios with the given parameters', default=5)
 parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
-parser.add_argument('-g', '--graphing', type=bool, help='graph solution quality vs runtime', default=False)
+parser.add_argument('-g', '--graphing', type=bool, help='save results graphs and solution quality vs runtime graph', default=False)
 parser.add_argument('-l', '--loc', type=int, help='location based sampling', default=0)
 parser.add_argument('-o', '--scenario', type=str, help='scenario file', default='scenario.csv')
 parser.add_argument('-e', '--strength', type=str, help='strength of the earthquake')
@@ -4091,9 +4091,10 @@ if __name__ == '__main__':
             fname = save_dir + '/compare.csv'
             with open(fname, 'w', newline='') as f:
                 f.write(t.get_csv_string(header=False))
-            get_sequence_graphs(NETWORK_DIR, str(num_broken), alt_dir=ULT_SCENARIO_REP_DIR, multiClass=True, mc_weights=mc_weights)
+            if graphing:
+                get_sequence_graphs(NETWORK_DIR, str(num_broken), alt_dir=ULT_SCENARIO_REP_DIR, multiClass=True, mc_weights=mc_weights)
 
-        else:
+        elif graphing:
             get_sequence_graphs(NETWORK_DIR, str(num_broken), mc_weights=mc_weights)
 
         if graphing:
