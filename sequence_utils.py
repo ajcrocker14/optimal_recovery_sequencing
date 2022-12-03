@@ -473,85 +473,93 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True
         try:
             tstt = net_update(net, args, flows)
         except:
-            print('error in executing net_update from solve_ue, retrying')
-            shutil.copy('full_log.txt', 'full_log_error.txt')
-            shutil.copy('current_net.tntp', 'current_net_error.tntp')
-            shutil.copy('current_params.txt', 'current_params_error.txt')
+            for att in range(2):
+                print('error in executing net_update from solve_ue, retrying')
+                shutil.copy('full_log.txt', 'full_log_error.txt')
+                shutil.copy('current_net.tntp', 'current_net_error.tntp')
+                shutil.copy('current_params.txt', 'current_params_error.txt')
 
-            temp = 1
-            if type(net.tripfile) == list:
-                temp = len(net.tripfile)
+                temp = 1
+                if type(net.tripfile) == list:
+                    temp = len(net.tripfile)
 
-            if rev:
-                bush_loc = 'after-batch'
-                mat_loc = 'after-matrix'
-            else:
-                bush_loc = 'before-batch'
-                mat_loc = 'before-matrix'
-            for i in range(temp):
-                shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
-                shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
+                if att == 1:
+                    rev = not rev
 
-            if type(net.tripfile) == list:
-                with open('current_params.txt','w') as f2:
-                    f2.write('<NETWORK FILE> ')
-                    f2.write('current_net.tntp')
-                    f2.write('\n')
-                    for item in net.tripfile:
+                if rev:
+                    bush_loc = 'after-batch'
+                    mat_loc = 'after-matrix'
+                else:
+                    bush_loc = 'before-batch'
+                    mat_loc = 'before-matrix'
+                for i in range(temp):
+                    shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
+                    shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
+
+                if type(net.tripfile) == list:
+                    with open('current_params.txt','w') as f2:
+                        f2.write('<NETWORK FILE> ')
+                        f2.write('current_net.tntp')
+                        f2.write('\n')
+                        for item in net.tripfile:
+                            f2.write('<TRIPS FILE> ')
+                            f2.write(item)
+                            f2.write('\n')
+                        f2.write('<CONVERGENCE GAP> ')
+                        f2.write(prec)
+                        f2.write('\n')
+                        f2.write('<MAX RUN TIME> ')
+                        f2.write(str(60))
+                        f2.write('\n')
+                        f2.write('<NUMBER OF THREADS> 1')
+                        f2.write('\n')
+                        f2.write('<NUMBER OF BATCHES> ')
+                        f2.write(str(len(net.tripfile)))
+                        f2.write('\n')
+                        f2.write('<FILE PATH> ')
+                        f2.write('./')
+                        f2.write('\n')
+                        f2.write('<DATA PATH> ')
+                        f2.write('./')
+                        f2.write('\n')
+                        if warm_start:
+                            f2.write('<WARM START>')
+                            f2.write('\n')
+                else:
+                    with open('current_params.txt','w') as f2:
+                        f2.write('<NETWORK FILE> ')
+                        f2.write('current_net.tntp')
+                        f2.write('\n')
                         f2.write('<TRIPS FILE> ')
-                        f2.write(item)
+                        f2.write(net.tripfile)
                         f2.write('\n')
-                    f2.write('<CONVERGENCE GAP> ')
-                    f2.write(prec)
-                    f2.write('\n')
-                    f2.write('<MAX RUN TIME> ')
-                    f2.write(str(60))
-                    f2.write('\n')
-                    f2.write('<NUMBER OF THREADS> 1')
-                    f2.write('\n')
-                    f2.write('<NUMBER OF BATCHES> ')
-                    f2.write(str(len(net.tripfile)))
-                    f2.write('\n')
-                    f2.write('<FILE PATH> ')
-                    f2.write('./')
-                    f2.write('\n')
-                    f2.write('<DATA PATH> ')
-                    f2.write('./')
-                    f2.write('\n')
-                    if warm_start:
-                        f2.write('<WARM START>')
+                        f2.write('<CONVERGENCE GAP> ')
+                        f2.write(prec)
                         f2.write('\n')
-            else:
-                with open('current_params.txt','w') as f2:
-                    f2.write('<NETWORK FILE> ')
-                    f2.write('current_net.tntp')
-                    f2.write('\n')
-                    f2.write('<TRIPS FILE> ')
-                    f2.write(net.tripfile)
-                    f2.write('\n')
-                    f2.write('<CONVERGENCE GAP> ')
-                    f2.write(prec)
-                    f2.write('\n')
-                    f2.write('<MAX RUN TIME> ')
-                    f2.write(str(60))
-                    f2.write('\n')
-                    f2.write('<NUMBER OF THREADS> ')
-                    f2.write(str(CORES))
-                    f2.write('\n')
-                    f2.write('<FILE PATH> ')
-                    f2.write('./')
-                    f2.write('\n')
-                    f2.write('<DATA PATH> ')
-                    f2.write('./')
-                    f2.write('\n')
-                    if warm_start:
-                        f2.write('<WARM START>')
+                        f2.write('<MAX RUN TIME> ')
+                        f2.write(str(60))
                         f2.write('\n')
+                        f2.write('<NUMBER OF THREADS> ')
+                        f2.write(str(CORES))
+                        f2.write('\n')
+                        f2.write('<FILE PATH> ')
+                        f2.write('./')
+                        f2.write('\n')
+                        f2.write('<DATA PATH> ')
+                        f2.write('./')
+                        f2.write('\n')
+                        if warm_start:
+                            f2.write('<WARM START>')
+                            f2.write('\n')
 
-            args = shlex.split(folder_loc + "current_params.txt")
-            popen = subprocess.run(args, stdout=subprocess.DEVNULL)
-            shutil.copy('full_log.txt', 'full_log_error2.txt')
-            tstt = net_update(net, args, flows)
+                args = shlex.split(folder_loc + "current_params.txt")
+                popen = subprocess.run(args, stdout=subprocess.DEVNULL)
+                shutil.copy('full_log.txt', 'full_log_error2.txt')
+                try:
+                    tstt = net_update(net, args, flows)
+                    return tstt
+                except:
+                    continue
     return tstt
 
 

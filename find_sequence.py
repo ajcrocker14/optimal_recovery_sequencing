@@ -56,7 +56,8 @@ parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of wo
 """ when multiple values are given for num_crews, order is found based on first number,
 and postprocessing is performed to find OBJ for other crew numbers """
 parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
-parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs', default=False)
+parser.add_argument('--sa', nargs='+', type=int,
+    help='solve using simulated annealing method; 0=None, 1=legacy, 2=tiered-exp', default=0)
 parser.add_argument('--damaged', type=str, help='set damaged_dict to known values to explore various parameters', default='')
 parser.add_argument('--mc', type=bool, help='display separate TSTTs for each class of demand', default=False)
 parser.add_argument('-w', '--mc_weights', nargs='+', type=int, help='TSTT weights for each class of demand', default=1)
@@ -1771,7 +1772,7 @@ def preprocessing(damaged_links, net_after, mc_weights=1):
     return model, meany, stdy, Z_bar, preprocessing_num_tap
 
 
-def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=1, mc_weights=1):
+def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=1, mc_weights=1):
     """starts at bfs (greedy or importance) and conducts simulated annealling to find solution"""
     start = time.time()
     fname = net_after.save_dir + '/sim_anneal_solution'
@@ -1785,11 +1786,21 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
         curcost = deepcopy(bfs.cost)
         best_cost = deepcopy(bfs.cost)
         curnet = deepcopy(net_after)
-        if graphing:
+        if graphing and method==1:
             global sa_time_list
             global sa_OBJ_list
             sa_time_list.append(0)
             sa_OBJ_list.append(deepcopy(bfs.cost))
+        elif graphing and method==2:
+            global sa2_time_list
+            global sa2_OBJ_list
+            sa2_time_list.append(0)
+            sa2_OBJ_list.append(deepcopy(bfs.cost))
+        elif graphing and method==3:
+            global sa3_time_list
+            global sa3_OBJ_list
+            sa3_time_list.append(0)
+            sa3_OBJ_list.append(deepcopy(bfs.cost))
 
         global memory
         t = 0
@@ -1817,7 +1828,12 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                     final_soln = deepcopy(best_soln)
                     final_cost = deepcopy(best_cost)
 
-                while t < 1.2 * len(current)**3:
+                max_iters = 1.2 * len(current)**3
+                T = 0
+                T0 = 0.044814
+                alpha = 0.771568
+                alpha2=0.7
+                while t < max_iters:
                     t += 1
                     idx = random.randrange(0,len(current)-1)
                     nextord = deepcopy(current)
@@ -1856,7 +1872,12 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                         #print('MOVED TO NEW STATE ' + str(current) + ' on iteration ' + str(t))
 
                     else:
-                        prob = math.exp(negdelta/curcost*(t**(2/3)))
+                        if method==1:
+                            prob = math.exp(negdelta/curcost*(t**(2/3)))
+                        elif method==2 or method==3:
+                            if t % np.floor(max_iters/len(damaged_dict)) == 0:
+                                T+=1
+                            prob = math.exp(negdelta/curcost/(T0*alpha**T))
                         if random.random() <= prob:
                             current = deepcopy(nextord)
                             curcost = deepcopy(nextcost)
@@ -1866,9 +1887,15 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                     if curcost < best_cost:
                         best_soln = deepcopy(current)
                         best_cost = deepcopy(curcost)
-                        if run == 0 and graphing:
+                        if run == 0 and graphing and method==1:
                             sa_time_list.append(time.time()-start)
                             sa_OBJ_list.append(deepcopy(best_cost))
+                        elif run == 0 and graphing and method==2:
+                            sa2_time_list.append(time.time()-start)
+                            sa2_OBJ_list.append(deepcopy(best_cost))
+                        elif run == 0 and graphing and method==3:
+                            sa3_time_list.append(time.time()-start)
+                            sa3_OBJ_list.append(deepcopy(best_cost))
                         lastMvmt = t
                         print('On iteration {}, new best solution cost {} with sequence {}'.format(t,best_cost,best_soln))
 
@@ -1944,10 +1971,15 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
         elapsed = time.time() - start
         path = best_soln
         bound = best_cost
-        if graphing:
+        if graphing and method==1:
             sa_time_list.append(elapsed)
             sa_OBJ_list.append(deepcopy(best_cost))
-
+        elif graphing and method==2:
+            sa2_time_list.append(elapsed)
+            sa2_OBJ_list.append(deepcopy(best_cost))
+        elif graphing and method==3:
+            sa3_time_list.append(elapsed)
+            sa3_OBJ_list.append(deepcopy(best_cost))
         test2, _, _ = eval_sequence(curnet, best_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
 
         if abs(test2-bound)> 5:
@@ -1964,7 +1996,7 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
         tap_solved = load(fname + '_num_tap')
         elapsed = load(fname + '_elapsed')
 
-    return bound, path, elapsed, tap_solved
+    return bound, path, elapsed, tap_solved, lastMvmt
 
 
 def LAFO(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, mc_weights=1):
@@ -2665,7 +2697,7 @@ def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
     save_fig(save_dir, 'map', tight_layout=True)
 
 
-def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None, sa_OBJ_list=None):
+def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None, sa_OBJ_list=None, addl_time_list=None, addl_OBJ_list=None):
     """function to plot running time vs OBJ progression"""
 
     fig, ax = plt.subplots(figsize = (8,6))
@@ -2677,32 +2709,49 @@ def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None
             for rep in range(reps):
                 plt.step(bs_time_list[bs_indices[rep]:bs_indices[rep+1]],
                    (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],bs_OBJ_list[bs_indices[rep]]))*100,
-                    where='post', color = jet(rep/reps), label = 'beam search '+str(rep+1))
+                    where='post', color = jet(rep/reps), label = 'sim anneal 1 - '+str(rep+1))
         else:
             for rep in range(reps):
                 plt.step(np.divide(bs_time_list[bs_indices[rep]:bs_indices[rep+1]],60),
-                   (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],bs_OBJ_list[bs_indices[rep]]))*100,
-                    where='post', color = jet(rep/reps), label = 'beam search '+str(rep+1))
+                    (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],bs_OBJ_list[bs_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), label = 'sim anneal 1 - '+str(rep+1))
     if sa_time_list != None:
         sa_indices = [i for i, time in enumerate(sa_time_list) if time == 0]
         sa_indices.append(len(sa_time_list))
+        print('sa2 indices', sa_indices)
+        print('length of sa_time_list is {}'.format(len(sa_time_list)))
         if num_broken < 16:
             for rep in range(reps):
                 plt.step(sa_time_list[sa_indices[rep]:sa_indices[rep+1]],
                     (1-np.divide(sa_OBJ_list[sa_indices[rep]:sa_indices[rep+1]],sa_OBJ_list[sa_indices[rep]]))*100,
-                    where='post', color = jet(rep/reps), linestyle='dashed', label = 'sim anneal '+str(rep+1))
+                    where='post', color = jet(rep/reps), linestyle='dashed', label = 'sim anneal 2 - '+str(rep+1))
         else:
             for rep in range(reps):
                 plt.step(np.divide(sa_time_list[sa_indices[rep]:sa_indices[rep+1]],60),
                     (1-np.divide(sa_OBJ_list[sa_indices[rep]:sa_indices[rep+1]],sa_OBJ_list[sa_indices[rep]]))*100,
-                    where='post', color = jet(rep/reps), linestyle='dashed', label = 'sim anneal '+str(rep+1))
+                    where='post', color = jet(rep/reps), linestyle='dashed', label = 'sim anneal 2 - '+str(rep+1))
+    if addl_time_list != None:
+        addl_indices = [i for i, time in enumerate(addl_time_list) if time == 0]
+        addl_indices.append(len(addl_time_list))
+        print('sa3 indices: ',addl_indices)
+        print('length of addl_time_list is {}'.format(len(addl_time_list)))
+        if num_broken < 16:
+            for rep in range(reps):
+                plt.step(addl_time_list[addl_indices[rep]:addl_indices[rep+1]],
+                    (1-np.divide(addl_OBJ_list[addl_indices[rep]:addl_indices[rep+1]],addl_OBJ_list[addl_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), linestyle='dotted', label = 'sim anneal 3 - '+str(rep+1))
+        else:
+            for rep in range(reps):
+                plt.step(np.divide(addl_time_list[addl_indices[rep]:addl_indices[rep+1]],60),
+                    (1-np.divide(addl_OBJ_list[addl_indices[rep]:addl_indices[rep+1]],addl_OBJ_list[addl_indices[rep]]))*100,
+                    where='post', color = jet(rep/reps), linestyle='dotted', label = 'sim anneal 3 - '+str(rep+1))
     if num_broken < 16:
         plt.title('Runtime (seconds) vs OBJ function improvement (%) for ' + NETWORK.split('/')[-1] +
             ' with ' + str(len(damaged_links)) + ' damaged links', fontsize=10)
     else:
         plt.title('Runtime (minutes) vs OBJ function improvement (%) for ' + NETWORK.split('/')[-1] +
             ' with ' + str(len(damaged_links)) + ' damaged links', fontsize=10)
-    plt.legend(ncol=2)
+    plt.legend(ncol=3)
 
     save_fig(save_dir, 'timevsOBJ', tight_layout=True)
 
@@ -2741,7 +2790,12 @@ if __name__ == '__main__':
     rand_gen = args.random
     location_based = args.loc
     opt = args.opt
-    sa = args.sa
+    if type(args.sa)==int:
+        mc_sa = args.sa
+    elif len(args.sa)==1:
+        sa = args.sa[0]
+    else:
+        sa = list(args.sa[:])
     damaged_dict_preset = args.damaged
     multiClass = args.mc
     if damaged_dict_preset != '':
@@ -2811,7 +2865,14 @@ if __name__ == '__main__':
             else:
                 bs_time_list = None
                 bs_OBJ_list = None
-            if sa:
+            if type(sa) == list:
+                sa_time_list = list()
+                sa_OBJ_list = list()
+                sa2_time_list = list()
+                sa2_OBJ_list = list()
+                sa3_time_list = list()
+                sa3_OBJ_list = list()
+            elif sa:
                 sa_time_list = list()
                 sa_OBJ_list = list()
             else:
@@ -3552,12 +3613,31 @@ if __name__ == '__main__':
 
                 ### Get simulated annealing solution ###
                 if sa:
-                    sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
-                        bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
-                    sa_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
-                    sa_num_tap += greedy_num_tap + 2*num_broken
+                    if type(sa) != list:
+                        sa_obj, sa_soln, sa_elapsed, sa_num_tap = sim_anneal(
+                            sa, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
+                        sa_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
+                        sa_num_tap += greedy_num_tap + 2*num_broken
+                    else: # currently coded for three methods for TESTING ONLY, will NOT combine with multicrew/multiclass
+                        sa_obj, sa_soln, sa_elapsed, sa_num_tap, sa_soln_iter = sim_anneal(
+                            sa[0], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
+                        sa_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
+                        sa_num_tap += greedy_num_tap + 2*num_broken
+                        sa2_obj, sa2_soln, sa2_elapsed, sa2_num_tap, sa2_soln_iter = sim_anneal(
+                            sa[1], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
+                        sa2_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
+                        sa2_num_tap += greedy_num_tap + 2*num_broken
+                        sa3_obj, sa3_soln, sa3_elapsed, sa3_num_tap, sa3_soln_iter = sim_anneal(
+                            sa[2], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
+                        sa3_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
+                        sa3_num_tap += greedy_num_tap + 2*num_broken
                     if alt_crews == None and not multiClass:
-                        print('simulated annealing obj: ', sa_obj)
+                        if type(sa) != list:
+                            print('simulated annealing obj: ', sa_obj)
+                        else:
+                            print('simulated annealing obj {} at iter {}'.format(sa_obj,sa_soln_iter))
+                            print('simulated annealing obj {} at iter {}'.format(sa2_obj,sa2_soln_iter))
+                            print('simulated annealing obj {} at iter {}'.format(sa3_obj,sa3_soln_iter))
                     elif multiClass and type(net_after.tripfile) == list:
                         test_net = deepcopy(net_after)
                         sa_obj_mc, _, _ = eval_sequence(
@@ -3824,7 +3904,12 @@ if __name__ == '__main__':
                         except:
                             pass
                     if sa:
-                        t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
+                        if type(sa) != list:
+                            t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
+                        else:
+                            t.add_row(['SA method '+str(sa[0]), sa_obj, sa_elapsed, sa_num_tap])
+                            t.add_row(['SA method '+str(sa[1]), sa2_obj, sa2_elapsed, sa2_num_tap])
+                            t.add_row(['SA method '+str(sa[2]), sa3_obj, sa3_elapsed, sa3_num_tap])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj, lc_elapsed, lc_num_tap])
@@ -4092,10 +4177,13 @@ if __name__ == '__main__':
             with open(fname, 'w', newline='') as f:
                 f.write(t.get_csv_string(header=False))
             if graphing:
-                get_sequence_graphs(NETWORK_DIR, str(num_broken), alt_dir=ULT_SCENARIO_REP_DIR, multiClass=True, mc_weights=mc_weights)
+                #get_sequence_graphs(NETWORK_DIR, str(num_broken), alt_dir=ULT_SCENARIO_REP_DIR, multiClass=True, mc_weights=mc_weights)
+                pass
 
         elif graphing:
-            get_sequence_graphs(NETWORK_DIR, str(num_broken), mc_weights=mc_weights)
+            #get_sequence_graphs(NETWORK_DIR, str(num_broken), mc_weights=mc_weights)
+            pass
 
         if graphing:
-            plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
+            #plotTimeOBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
+            plotTimeOBJ(save_dir,sa_time_list,sa_OBJ_list,sa2_time_list,sa2_OBJ_list,sa3_time_list,sa3_OBJ_list)
