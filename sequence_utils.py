@@ -21,13 +21,14 @@ BETA = 4.0
 CORES = min(mp.cpu_count(),4)
 
 class Network:
-    def __init__(self, networkFile="", demandFile=""):
+    def __init__(self, networkFile="", demandFile="", mc_weights=1):
         """
         Class initializer; if both a network file and demand file are specified,
         will read these files to fill the network data structure.
         """
         self.netfile = networkFile
         self.tripfile = demandFile
+        self.mc_weights = mc_weights
 
 def save(fname, data, extension='pickle'):
     path = fname + "." + extension
@@ -56,8 +57,8 @@ def save_fig(plt_path, algo, tight_layout=True, fig_extension="png", resolution=
     plt.savefig(path, format=fig_extension, dpi=resolution)
 
 
-def create_network(netfile=None, tripfile=None):
-    net = Network(netfile, tripfile)
+def create_network(netfile=None, tripfile=None, mc_weights=1):
+    net = Network(netfile, tripfile, mc_weights=mc_weights)
     return net
 
 
@@ -212,7 +213,7 @@ def net_update(net, args, flows=False):
     return tstt
 
 
-def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False, multiClass=False, mc_weights=1):
+def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False, multiClass=False):
     """If type(mc_weights)==list, then finds TSTT for each class separately and weights to
     find overall TSTT. If multiClass=True, then reports TSTT for each class separately"""
     # modify the net.txt file to send to c code and create parameters file
@@ -374,7 +375,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
-    if multiClass or type(mc_weights)==list:
+    if multiClass or type(net.mc_weights)==list:
         try:
             classTSTT = findClassTSTT(net, args)
         except:
@@ -458,13 +459,14 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True
             shutil.copy('full_log.txt', 'full_log_error2.txt')
             classTSTT = findClassTSTT(net, args)
 
-        if type(mc_weights)==list:
-            if len(mc_weights)==len(classTSTT)-1:
+        if type(net.mc_weights)==list:
+            if len(net.mc_weights)==len(classTSTT)-1:
                 classTSTT[0] = 0
-                for i in range(len(mc_weights)):
-                    classTSTT[0] += mc_weights[i]*classTSTT[i+1]
+                for i in range(len(net.mc_weights)):
+                    classTSTT[0] += net.mc_weights[i]*classTSTT[i+1]
             else:
-                print('User has provided {} mc_weights, and there are {} classes of demand. Returning UNWEIGHTED TSTT'.format(len(mc_weights),len(classTSTT)-1))
+                print('User has provided {} mc_weights, and there are {} classes of demand. Returning UNWEIGHTED TSTT'.format(
+                    len(net.mc_weights),len(classTSTT)-1))
         if multiClass:
             return classTSTT
         else:
@@ -601,7 +603,7 @@ def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
     return crew_order_list, which_crew, days_list
 
 
-def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, damaged_dict=None, num_crews=1, approx_params=None, multiClass=False, mc_weights=1):
+def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False, is_approx=False, num_crews=1, approx_params=None, multiClass=False):
     """evaluates the total tstt for a repair sequence, does not write to memory
     if multiClass=True, then evaluates the total area for each class separately
     approx and multiClass cannot be active simultaneously"""
@@ -623,13 +625,13 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
 
     ### crew order list is the order in which projects complete ###
     crew_order_list, which_crew, days_list = gen_crew_order(
-        order_list, damaged_dict=damaged_dict, num_crews=num_crews)
+        order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
 
     if multiClass and type(net.tripfile) == list:
         net.not_fixed = set(to_visit)
-        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass, mc_weights=mc_weights)
+        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
         net.not_fixed = set([])
-        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass, mc_weights=mc_weights)
+        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
 
     for link_id in crew_order_list:
         added.append(link_id)
@@ -646,7 +648,7 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
             tstt_after = tstt_after[0][0]
         else:
             tap_solved += 1
-            tstt_after = solve_UE(net=net, eval_seq=True, multiClass=multiClass, mc_weights=mc_weights)
+            tstt_after = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
 
         tstt_list.append(tstt_after)
 
@@ -691,9 +693,8 @@ def eval_sequence(net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, 
     return tot_area, tap_solved, tstt_list
 
 
-def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, damaged_dict, multiClass=False, mc_weights=1):
-    _, _, tstt_list = eval_sequence(
-        deepcopy(net), path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, multiClass=multiClass, mc_weights=mc_weights)
+def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, multiClass=False):
+    _, _, tstt_list = eval_sequence(deepcopy(net), path, after_eq_tstt, before_eq_tstt, multiClass=multiClass)
 
     # tstt_list.insert(0, after_eq_tstt)
 
