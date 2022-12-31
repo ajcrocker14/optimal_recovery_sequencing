@@ -38,7 +38,7 @@ parser.add_argument('-a', '--approx', type=bool,
 parser.add_argument('-r', '--reps', type=int,
                     help='number of scenarios with the given parameters', default=5)
 parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
-parser.add_argument('-g', '--graphing', type=bool, help='save results graphs and solution quality vs runtime graph', default=False)
+parser.add_argument('-g', '--graphing', type=bool, help='save results graphs and/or solution quality vs runtime graph', default=False)
 parser.add_argument('-l', '--loc', type=int, help='location based sampling', default=0)
 parser.add_argument('-o', '--scenario', type=str, help='scenario file', default='scenario.csv')
 parser.add_argument('-e', '--strength', type=str, help='strength of the earthquake')
@@ -57,7 +57,10 @@ parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of wo
 and postprocessing is performed to find OBJ for other crew numbers """
 parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
 parser.add_argument('--sa', nargs='+', type=int,
-    help='solve using simulated annealing method; 0=None, 1=legacy, 2=tiered-exp', default=0)
+    help='solve using simulated annealing method; 0=None, xyz=see additional options', default=0)
+""" Additional testing options for sa (three digit number): x=k-neighborhood, y=0 for L-M or y=1 for var-geom,
+z=0 without fail_dict z=1 for fail_dict using min in neighborhood z=2 for fail_dict with random out direction.
+When using testing options and not graphing, each sa method will run 3 times """
 parser.add_argument('--damaged', type=str, help='set damaged_dict to known values to explore various parameters', default='')
 parser.add_argument('--mc', type=bool, help='display separate TSTTs for each class of demand', default=False)
 parser.add_argument('-w', '--mc_weights', nargs='+', type=int, help='TSTT weights for each class of demand', default=1)
@@ -1775,7 +1778,7 @@ def preprocessing(damaged_links, net_after, mc_weights=1):
 def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=1, mc_weights=1):
     """starts at bfs (greedy or importance) and conducts simulated annealling to find solution"""
     start = time.time()
-    fname = net_after.save_dir + '/sim_anneal_solution'
+    fname = net_after.save_dir + '/sim_anneal_solution' + str(method)
     num_runs = 1
 
     if not os.path.exists(fname + extension):
@@ -1786,17 +1789,17 @@ def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_li
         curcost = deepcopy(bfs.cost)
         best_cost = deepcopy(bfs.cost)
         curnet = deepcopy(net_after)
-        if graphing and method==1:
+        if graphing and method==sa[0]:
             global sa_time_list
             global sa_OBJ_list
             sa_time_list.append(0)
             sa_OBJ_list.append(deepcopy(bfs.cost))
-        elif graphing and method==2:
+        elif graphing and method==sa[1]:
             global sa2_time_list
             global sa2_OBJ_list
             sa2_time_list.append(0)
             sa2_OBJ_list.append(deepcopy(bfs.cost))
-        elif graphing and method==3:
+        elif graphing and method==sa[2]:
             global sa3_time_list
             global sa3_OBJ_list
             sa3_time_list.append(0)
@@ -1811,8 +1814,9 @@ def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_li
         if num_crews==1:
             for run in range(num_runs):
                 if num_runs > 1:
-                    print('Starting simulated annealing run number:', run+1)
+                    print('Starting simulated annealing method {} run number: {}'.format(method,run+1))
                     if run > 0:
+                        new_start = time.time()
                         current = list(deepcopy(bfs.path))
                         best_soln = list(deepcopy(bfs.path))
                         curcost = deepcopy(bfs.cost)
@@ -1831,37 +1835,127 @@ def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_li
                 max_iters = 1.2 * len(current)**3
                 T = 0
                 T0 = 0.044814
-                alpha = 0.771568
-                alpha2=0.7
+
+                if str(method)[0]!='1':
+                    if str(method)[0]=='3':
+                        neighborhood = len(current)*5-11
+                        neigh2 = False
+                        neigh3 = False
+                        print('Using 3-neighborhood')
+                    elif str(method)[0]=='2':
+                        neighborhood = len(current)*3-5
+                        neigh2 = False
+                        print('Using 2-neighborhood')
+                    else:
+                        neighborhood = len(current)-1
+                        print('k-neighborhood input: {} not understood, using k=1', str(method)[0])
+                else:
+                    neighborhood = len(current)-1
+
+                if str(method)[1]=='1':
+                    alpha = (-0.01 / (T0 * np.log(0.1)))**(1/(len(current)-1))
+                    print('Calculated alpha for geometric cooling scheme is : ', alpha)
+                elif str(method)[1]!='0':
+                    print('Cooling scheme input: {} not understood, using Lundy-Mees', str(method)[1])
+
+                if str(method)[2]!='0':
+                    fail_dict = dict()
+                    force = False
+                    print('Using failure dictionary with sub-method ', str(method)[2])
+
                 while t < max_iters:
                     t += 1
-                    idx = random.randrange(0,len(current)-1)
-                    nextord = deepcopy(current)
-                    el = nextord.pop(idx)
-                    swap = nextord[idx]
-                    nextord.insert(idx+1,el)
+                    idx_temp = random.randrange(0,neighborhood)
+                    if str(method)[2]=='1':
+                        ### fail dict which selects min solution in k-neigh after rejecting all in k-neigh
+                        if len(fail_dict) == neighborhood:
+                            idx_temp = min(fail_dict, key=lambda x: fail_dict[x])
+                            force = True
+                            fail_dict = {}
+                        while idx_temp in fail_dict:
+                            idx_temp = random.randrange(0,neighborhood)
+                    elif str(method)[2]=='2':
+                        ### fail dict which selects random solution after rejecting all in k-neigh
+                        if len(fail_dict) == neighborhood:
+                            idx_temp = random.randrange(0,neighborhood)
+                            force = True
+                            fail_dict = {}
+                        while idx_temp in fail_dict:
+                            idx_temp = random.randrange(0,neighborhood)
 
-                    #get tstt before fixing el or swap, then tstt if fixing each first to find difference in total area
-                    startstate = current[:idx]
-                    startTSTT, tap = eval_state(startstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
-                    tap_solved += tap
+                    if str(method)[0]=='2':
+                        if idx_temp < len(current)-1:
+                            idx = idx_temp
+                            neigh2 = False
+                        else:
+                            neigh2 = True
+                    elif str(method)[0]=='3':
+                        if idx_temp < len(current)-1:
+                            idx = idx_temp
+                            neigh2 = False
+                            neigh3 = False
+                        elif idx_temp < len(current)*3-5:
+                            neigh2 = True
+                            neigh3 = False
+                        else:
+                            neigh2 = False
+                            neigh3 = True
+                    else:
+                        idx = idx_temp
 
-                    endstate = current[:idx+2]
-                    endTSTT, tap = eval_state(endstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
-                    tap_solved += tap
+                    if (str(method)[0]=='2' or str(method)[0]=='3') and neigh2==True:
+                        nextord = deepcopy(current)
+                        if idx_temp < len(current)*2-3:
+                            idx = idx_temp - len(current) + 1
+                            el = nextord.pop(idx)
+                            nextord.insert(idx+2,el)
+                        else:
+                            idx = idx_temp - len(current)*2 + 5
+                            el = nextord.pop(idx)
+                            nextord.insert(idx-2,el)
+                        nextcost, tap, _ = eval_working_sequence(
+                            curnet, nextord, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
+                        tap_solved += tap
+                    elif str(method)[0]=='3' and neigh3==True:
+                        nextord = deepcopy(current)
+                        if idx_temp < len(current)*4-8:
+                            idx = idx_temp - len(current)*3 + 5
+                            el = nextord.pop(idx)
+                            nextord.insert(idx+3,el)
+                        else:
+                            idx = idx_temp - len(current)*4 + 11
+                            el = nextord.pop(idx)
+                            nextord.insert(idx-3,el)
+                        nextcost, tap, _ = eval_working_sequence(
+                            curnet, nextord, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
+                        tap_solved += tap
+                    else:
+                        nextord = deepcopy(current)
+                        el = nextord.pop(idx)
+                        swap = nextord[idx]
+                        nextord.insert(idx+1,el)
 
-                    elstate = current[:idx+1]
-                    elTSTT, tap = eval_state(elstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
-                    tap_solved += tap
+                        #get tstt before fixing el or swap, then tstt if fixing each first to find difference in total area
+                        startstate = current[:idx]
+                        startTSTT, tap = eval_state(startstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
+                        tap_solved += tap
 
-                    swapstate = nextord[:idx+1]
-                    swapTSTT, tap = eval_state(swapstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
-                    tap_solved += tap
+                        endstate = current[:idx+2]
+                        endTSTT, tap = eval_state(endstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
+                        tap_solved += tap
 
-                    nextcost = deepcopy(curcost)
-                    nextcost -= startTSTT*(damaged_dict[el]-damaged_dict[swap])
-                    nextcost -= elTSTT*damaged_dict[swap]
-                    nextcost += swapTSTT*damaged_dict[el]
+                        elstate = current[:idx+1]
+                        elTSTT, tap = eval_state(elstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
+                        tap_solved += tap
+
+                        swapstate = nextord[:idx+1]
+                        swapTSTT, tap = eval_state(swapstate, curnet, damaged_links, eval_seq=True, mc_weights=mc_weights)
+                        tap_solved += tap
+
+                        nextcost = deepcopy(curcost)
+                        nextcost -= startTSTT*(damaged_dict[el]-damaged_dict[swap])
+                        nextcost -= elTSTT*damaged_dict[swap]
+                        nextcost += swapTSTT*damaged_dict[el]
 
                     negdelta = curcost - nextcost
 
@@ -1872,28 +1966,42 @@ def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_li
                         #print('MOVED TO NEW STATE ' + str(current) + ' on iteration ' + str(t))
 
                     else:
-                        if method==1:
-                            prob = math.exp(negdelta/curcost*(t**(2/3)))
-                        elif method==2 or method==3:
+                        if str(method)[1]=='0':
+                            if str(method)[2]!='0' and force==True:
+                                prob = 1
+                            else:
+                                prob = math.exp(negdelta/curcost*(t**(2/3)))
+                        else:
                             if t % np.floor(max_iters/len(damaged_dict)) == 0:
                                 T+=1
-                            prob = math.exp(negdelta/curcost/(T0*alpha**T))
+                            if str(method)[2]!='0' and force==True:
+                                prob = 1
+                            else:
+                                prob = math.exp(negdelta/curcost/(T0*alpha**T))
                         if random.random() <= prob:
                             current = deepcopy(nextord)
                             curcost = deepcopy(nextcost)
                         else:
                             fail += 1
+                            if str(method)[2]!='0':
+                                fail_dict[idx] = nextcost
 
                     if curcost < best_cost:
+                        # test1, _, _ = eval_working_sequence(curnet, current, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
+                        # if best_cost < test1:
+                        #     print('inaccuracy in new best soln ' + str(test1-curcost) + ' test1= ' + str(test1) + ' curcost= ' + str(curcost) + '. Do not use.')
+                        #     curcost = test1
+                        # else:
+                        #     curcost = test1
                         best_soln = deepcopy(current)
                         best_cost = deepcopy(curcost)
-                        if run == 0 and graphing and method==1:
+                        if run == 0 and graphing and method==sa[0]:
                             sa_time_list.append(time.time()-start)
                             sa_OBJ_list.append(deepcopy(best_cost))
-                        elif run == 0 and graphing and method==2:
+                        elif run == 0 and graphing and method==sa[1]:
                             sa2_time_list.append(time.time()-start)
                             sa2_OBJ_list.append(deepcopy(best_cost))
-                        elif run == 0 and graphing and method==3:
+                        elif run == 0 and graphing and method==sa[2]:
                             sa3_time_list.append(time.time()-start)
                             sa3_OBJ_list.append(deepcopy(best_cost))
                         lastMvmt = t
@@ -1971,20 +2079,23 @@ def sim_anneal(method, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_li
         elapsed = time.time() - start
         path = best_soln
         bound = best_cost
-        if graphing and method==1:
+        if graphing and method==sa[0]:
             sa_time_list.append(elapsed)
             sa_OBJ_list.append(deepcopy(best_cost))
-        elif graphing and method==2:
+        elif graphing and method==sa[1]:
             sa2_time_list.append(elapsed)
             sa2_OBJ_list.append(deepcopy(best_cost))
-        elif graphing and method==3:
+        elif graphing and method==sa[2]:
             sa3_time_list.append(elapsed)
             sa3_OBJ_list.append(deepcopy(best_cost))
         test2, _, _ = eval_sequence(curnet, best_soln, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
 
         if abs(test2-bound)> 5:
             print('inaccuracy in best soln ' + str(test2-bound) + ' test2= ' + str(test2) + ' bound= ' + str(bound))
-        bound = test2
+            bound = test2
+        if path==bfs.path or bound > bfs.cost:
+            path = bfs.path
+            bound = bfs.cost
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -2404,6 +2515,10 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
         elapsed = time.time() - start + time_net_before + time_net_after
 
         bound, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
+        print('Test for consistency...')
+        bound2, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
+        bound3, _, _ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt, damaged_dict=damaged_dict, num_crews=num_crews, mc_weights=mc_weights)
+        print('Should all be identical: 1) {}, 2) {}, 3) {}'.format(bound,bound2,bound3))
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -2718,8 +2833,8 @@ def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None
     if sa_time_list != None:
         sa_indices = [i for i, time in enumerate(sa_time_list) if time == 0]
         sa_indices.append(len(sa_time_list))
-        print('sa2 indices', sa_indices)
-        print('length of sa_time_list is {}'.format(len(sa_time_list)))
+        #print('sa2 indices', sa_indices)
+        #print('length of sa_time_list is {}'.format(len(sa_time_list)))
         if num_broken < 16:
             for rep in range(reps):
                 plt.step(sa_time_list[sa_indices[rep]:sa_indices[rep+1]],
@@ -2733,8 +2848,8 @@ def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None
     if addl_time_list != None:
         addl_indices = [i for i, time in enumerate(addl_time_list) if time == 0]
         addl_indices.append(len(addl_time_list))
-        print('sa3 indices: ',addl_indices)
-        print('length of addl_time_list is {}'.format(len(addl_time_list)))
+        #print('sa3 indices: ',addl_indices)
+        #print('length of addl_time_list is {}'.format(len(addl_time_list)))
         if num_broken < 16:
             for rep in range(reps):
                 plt.step(addl_time_list[addl_indices[rep]:addl_indices[rep+1]],
@@ -3618,26 +3733,58 @@ if __name__ == '__main__':
                             sa, bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
                         sa_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
                         sa_num_tap += greedy_num_tap + 2*num_broken
-                    else: # currently coded for three methods for TESTING ONLY, will NOT combine with multicrew/multiclass
+
+                    elif graphing: # currently coded for three methods for TESTING ONLY, will NOT combine with multicrew/multiclass
                         sa_obj, sa_soln, sa_elapsed, sa_num_tap, sa_soln_iter = sim_anneal(
                             sa[0], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
                         sa_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
                         sa_num_tap += greedy_num_tap + 2*num_broken
+
+                        del memory
+                        memory = deepcopy(memory1)
                         sa2_obj, sa2_soln, sa2_elapsed, sa2_num_tap, sa2_soln_iter = sim_anneal(
                             sa[1], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
                         sa2_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
                         sa2_num_tap += greedy_num_tap + 2*num_broken
+
+                        del memory
+                        memory = deepcopy(memory1)
                         sa3_obj, sa3_soln, sa3_elapsed, sa3_num_tap, sa3_soln_iter = sim_anneal(
                             sa[2], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
                         sa3_elapsed += greedy_elapsed + importance_elapsed + 2*evaluation_time
                         sa3_num_tap += greedy_num_tap + 2*num_broken
+
+                    else:
+                        sa_obj = list()
+                        sa_soln = list()
+                        sa_elapsed = list()
+                        sa_num_tap = list()
+                        sa_soln_iter = list()
+                        for el in range(len(sa)):
+                            sa_obj.append([0,0,0])
+                            sa_soln.append([0,0,0])
+                            sa_elapsed.append([0,0,0])
+                            sa_num_tap.append([0,0,0])
+                            sa_soln_iter.append([0,0,0])
+                            for i in range(3):
+                                del memory
+                                memory = deepcopy(memory1)
+                                sa_obj[el][i], sa_soln[el][i], sa_elapsed[el][i], sa_num_tap[el][i], sa_soln_iter[el][i] = sim_anneal(
+                                    sa[el], bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews, mc_weights=mc_weights)
+                                sa_elapsed[el][i] += greedy_elapsed + importance_elapsed + 2*evaluation_time
+                                sa_num_tap[el][i] += greedy_num_tap + 2*num_broken
+
                     if alt_crews == None and not multiClass:
                         if type(sa) != list:
                             print('simulated annealing obj: ', sa_obj)
-                        else:
+                        elif graphing:
                             print('simulated annealing obj {} at iter {}'.format(sa_obj,sa_soln_iter))
                             print('simulated annealing obj {} at iter {}'.format(sa2_obj,sa2_soln_iter))
                             print('simulated annealing obj {} at iter {}'.format(sa3_obj,sa3_soln_iter))
+                        else:
+                            for el in range(len(sa)):
+                                print('simulated annealing method {} found objs {} at iters {}'.format(sa[el],sa_obj[el],sa_soln_iter[el]))
+
                     elif multiClass and type(net_after.tripfile) == list:
                         test_net = deepcopy(net_after)
                         sa_obj_mc, _, _ = eval_sequence(
@@ -3906,10 +4053,14 @@ if __name__ == '__main__':
                     if sa:
                         if type(sa) != list:
                             t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
-                        else:
+                        elif graphing:
                             t.add_row(['SA method '+str(sa[0]), sa_obj, sa_elapsed, sa_num_tap])
                             t.add_row(['SA method '+str(sa[1]), sa2_obj, sa2_elapsed, sa2_num_tap])
                             t.add_row(['SA method '+str(sa[2]), sa3_obj, sa3_elapsed, sa3_num_tap])
+                        else:
+                            for el in range(len(sa)):
+                                for i in range(3):
+                                    t.add_row(['SA method '+str(sa[el])+' run '+str(i+1), sa_obj[el][i], sa_elapsed[el][i], sa_num_tap[el][i]])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj, lc_elapsed, lc_num_tap])
@@ -3984,8 +4135,16 @@ if __name__ == '__main__':
                     except:
                         pass
                 if sa:
-                    print('simulated annealing: ', sa_soln)
-                    print('---------------------------')
+                    if type(sa) != list:
+                        print('simulated annealing: ', sa_soln)
+                        print('---------------------------')
+                    elif graphing:
+                        print('simulated annealing {}: {}'.format(sa[0],sa_soln))
+                        print('---------------------------')
+                        print('simulated annealing {}: {}'.format(sa[1],sa2_soln))
+                        print('---------------------------')
+                        print('simulated annealing {}: {}'.format(sa[2],sa3_soln))
+                        print('---------------------------')
                 print('greedy: ', greedy_soln)
                 print('---------------------------')
                 print('lazy_greedy: ', lg_soln)
@@ -4012,7 +4171,7 @@ if __name__ == '__main__':
                     temp_dict['header'].append('algo')
                 if beam_search:
                     temp_dict['header'].append('BS')
-                if sa:
+                if sa and type(sa) != list:
                     temp_dict['header'].append('SA')
                 temp_dict['header'].append('Greedy')
                 temp_dict['header'].append('LG')
@@ -4039,7 +4198,7 @@ if __name__ == '__main__':
                     if beam_search:
                         el = r_algo_path.index(link)
                         damaged_seqs[link].append(el+1)
-                    if sa:
+                    if sa and type(sa) != list:
                         el = sa_soln.index(link)
                         damaged_seqs[link].append(el+1)
                     el = greedy_soln.index(link)
