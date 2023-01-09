@@ -1415,7 +1415,7 @@ def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
         net_after.not_fixed = set(damaged_links)
         net_after.art_links = artLinkDict
         net_after.damaged_dict = damaged_dict
-        after_eq_tstt = solve_UE(net=net_after, eval_seq=True, warm_start=False)
+        after_eq_tstt = solve_UE(net=net_after, eval_seq=True, warm_start=False, initial=True)
         if type(mc_weights)==list:
             test_net = deepcopy(net_after)
             test_net.mc_weights = 1
@@ -1469,7 +1469,7 @@ def state_before(damaged_links, save_dir, relax=False, real=False, bsearch=False
             test_net = deepcopy(net_before)
             test_net.mc_weights = 1
             before_eq_tstt_mcunw = solve_UE(net=test_net, eval_seq=True, warm_start=False, multiClass=True)
-        before_eq_tstt = solve_UE(net=net_before, eval_seq=True, warm_start=False, flows=True)
+        before_eq_tstt = solve_UE(net=net_before, eval_seq=True, warm_start=False, flows=True, initial=True)
         global memory
         memory[frozenset(net_before.not_fixed)] = before_eq_tstt
         elapsed = time.time() - start
@@ -2336,6 +2336,7 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
                 test_net.not_fixed = set(not_fixed)
 
                 after_fix_tstt = solve_UE(net=test_net, eval_seq=True)
+
                 global memory
                 memory[frozenset(test_net.not_fixed)] = after_fix_tstt
                 tap_solved += 1
@@ -2669,6 +2670,7 @@ def plotNodesLinks(save_dir, net, damaged_links, coord_dict, names = False):
     plt.title('Map of ' + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links)) + ' damaged links', fontsize=12)
 
     save_fig(save_dir, 'map', tight_layout=True)
+    plt.close(fig)
 
 
 def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None, sa_OBJ_list=None):
@@ -2711,6 +2713,7 @@ def plotTimeOBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None
     plt.legend(ncol=2)
 
     save_fig(save_dir, 'timevsOBJ', tight_layout=True)
+    plt.close(fig)
 
 
 def percentChange(a,b):
@@ -2784,19 +2787,6 @@ if __name__ == '__main__':
                     print('Improper tripfile naming.')
                     raise utils.BadFileFormatException
                 break
-    #if multiClass == True and damaged_dict_preset != '':
-    #    TRIPFILE = list()
-    #    i=1
-    #    while True:
-    #        if os.path.exists(os.path.join(NETWORK, net_name + "_trips" + str(i) + "a.tntp")):
-    #            TRIPFILE.append(os.path.join(NETWORK, net_name + "_trips" + str(i) + "a.tntp"))
-    #            i+=1
-    #        else:
-    #            if TRIPFILE == []:
-    #                print('Improper tripfile naming.')
-    #                raise utils.BadFileFormatException
-    #            print(TRIPFILE)
-    #            break
 
     SAVED_FOLDER_NAME = "saved"
     PROJECT_ROOT_DIR = "."

@@ -74,7 +74,7 @@ def read_scenario(fname='ScenarioAnalysis.xlsx', sname='Moderate_1'):
     return damage_dict
 
 
-def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName):
+def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=False):
     """write tui file to be read by tap-b"""
 
     if eval_seq:
@@ -121,6 +121,11 @@ def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName):
         f2.write('\n')
         if warm_start:
             f2.write('<WARM START>')
+            f2.write('\n')
+        if initial:
+            f2.write('<STORE MATRICES>')
+            f2.write('\n')
+            f2.write('<STORE BUSHES>')
             f2.write('\n')
 
 
@@ -263,10 +268,11 @@ def net_update(net, args, flows=False):
     return tstt
 
 
-def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False, multiClass=False):
+def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False, multiClass=False, initial=False):
     """If type(mc_weights)==list, then finds TSTT for each class separately and weights to
     find overall TSTT. If multiClass=True, then reports TSTT for each class separately"""
     # modify the net.txt file to send to c code and create parameters file
+
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
 
@@ -333,11 +339,12 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True
 
     start = time.time()
 
-    write_tui(net, relax, eval_seq, False, rev, networkFileName)
+    write_tui(net, relax, eval_seq, False, rev, networkFileName, initial=initial)
     args = shlex.split(folder_loc + "current_params.txt")
 
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
+
     if multiClass or type(net.mc_weights)==list:
         try:
             classTSTT = findClassTSTT(net, args)
@@ -361,7 +368,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True
                 shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
                 shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
 
-            write_tui(net, relax, eval_seq, True, rev, networkFileName)
+            write_tui(net, relax, eval_seq, True, rev, networkFileName, initial=initial)
             args = shlex.split(folder_loc + "current_params.txt")
 
             popen = subprocess.run(args, stdout=subprocess.DEVNULL)
@@ -403,7 +410,7 @@ def solve_UE(net=None, relax=False, eval_seq=False, flows=False, warm_start=True
                 shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
                 shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
 
-            write_tui(net, relax, eval_seq, True, rev, networkFileName)
+            write_tui(net, relax, eval_seq, True, rev, networkFileName, initial=initial)
             args = shlex.split(folder_loc + "current_params.txt")
 
             popen = subprocess.run(args, stdout=subprocess.DEVNULL)
