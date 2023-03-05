@@ -260,9 +260,9 @@ def net_update(net, args, flows=False):
 
 def solve_UE(
         net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False,
-        multiClass=False, initial=False):
+        multiclass=False, initial=False):
     """If type(mc_weights)==list, then finds TSTT for each class separately and weights to
-    find overall TSTT. If multiClass=True, then reports TSTT for each class separately"""
+    find overall TSTT. If multiclass=True, then reports TSTT for each class separately"""
     # modify the net.txt file to send to c code and create parameters file
     shutil.copy(net.netfile, 'current_net.tntp')
     networkFileName = "current_net.tntp"
@@ -333,7 +333,7 @@ def solve_UE(
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
 
-    if multiClass or type(net.mc_weights)==list:
+    if multiclass or type(net.mc_weights)==list:
         try:
             class_tstt = find_class_tstt(net, args)
         except:
@@ -370,7 +370,7 @@ def solve_UE(
             else:
                 print('User has provided {} mc_weights, and there are {} classes of demand. \
                       Returning UNWEIGHTED TSTT'.format(len(net.mc_weights),len(class_tstt)-1))
-        if multiClass:
+        if multiclass:
             return class_tstt
         else:
             return class_tstt[0]
@@ -455,10 +455,10 @@ def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
 
 def eval_sequence(
         net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False,
-        is_approx=False, num_crews=1, approx_params=None, multiClass=False):
+        is_approx=False, num_crews=1, approx_params=None, multiclass=False):
     """evaluates the total tstt for a repair sequence, does not write to memory
-    if multiClass=True, then evaluates the total area for each class separately
-    approx and multiClass cannot be active simultaneously"""
+    if multiclass=True, then evaluates the total area for each class separately
+    approx and multiclass cannot be active simultaneously"""
     tap_solved = 0
     days_list = []
     tstt_list = []
@@ -479,11 +479,11 @@ def eval_sequence(
     crew_order_list, which_crew, days_list = gen_crew_order(
         order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
 
-    if multiClass and type(net.tripfile) == list:
+    if multiclass and type(net.tripfile) == list:
         net.not_fixed = set(to_visit)
-        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+        after_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiclass=multiclass)
         net.not_fixed = set([])
-        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+        before_eq_tstt_mc = solve_UE(net=net, eval_seq=True, multiclass=multiclass)
 
     for link_id in crew_order_list:
         added.append(link_id)
@@ -501,12 +501,12 @@ def eval_sequence(
             tstt_after = tstt_after[0][0]
         else:
             tap_solved += 1
-            tstt_after = solve_UE(net=net, eval_seq=True, multiClass=multiClass)
+            tstt_after = solve_UE(net=net, eval_seq=True, multiclass=multiclass)
 
         tstt_list.append(tstt_after)
 
         # Check for tstt's less than before eq tstt's by greater than 0.001%
-        if multiClass:
+        if multiclass:
             for i in range(len(tstt_after)):
                 if (before_eq_tstt_mc[i] - tstt_after[i]) / before_eq_tstt_mc[i] > 0.00001:
                     print('tstt after repairing link {} is lower than tstt before eq by {} \
@@ -525,7 +525,7 @@ def eval_sequence(
             curfp += if_list[link_id]
             fp.append(curfp * 100)
 
-    if multiClass and type(net.tripfile) == list:
+    if multiclass and type(net.tripfile) == list:
         tot_area = [0]*(len(net.tripfile)+1)
         for j in range(len(net.tripfile)+1):
             for i in range(len(days_list)):
@@ -546,9 +546,9 @@ def eval_sequence(
     return tot_area, tap_solved, tstt_list
 
 
-def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, multiClass=False):
+def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, multiclass=False):
     __, __, tstt_list = eval_sequence(deepcopy(net), path, after_eq_tstt, before_eq_tstt,
-        multiClass=multiClass)
+        multiclass=multiclass)
 
     # tstt_list.insert(0, after_eq_tstt)
     days_list = []
