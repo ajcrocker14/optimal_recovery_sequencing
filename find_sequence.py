@@ -63,6 +63,8 @@ parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of wo
 """ when multiple values are given for num_crews, order is found based
 on first number, and postprocessing is performed to find OBJ for other
 crew numbers """
+parser.add_argument('-k', '--decomp', type=bool, help='find multicrew sequences using decomposition',
+                    default = False)
 parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
 parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs',
                     default=False)
@@ -174,12 +176,19 @@ def eval_working_sequence(
     tstt_list = []
     global memory
 
-    to_visit = order_list
+    if isinstance(order_list[0], str):
+        to_visit = order_list
+    else:
+        to_visit = list(reduce(op.concat, order_list))
     added = []
 
     # Crew order list is the order in which projects complete
-    crew_order_list, which_crew, days_list = gen_crew_order(
-        order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
+    if isinstance(order_list[0], str):
+        crew_order_list, which_crew, days_list = gen_crew_order(
+            order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
+    else:
+        crew_order_list, which_crew, days_list = gen_decomp_crew_order(
+            order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
 
     for link_id in crew_order_list:
         added.append(link_id)
@@ -2153,9 +2162,6 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_c
         tap_solved = load(fname + '_num_tap')
         elapsed = load(fname + '_elapsed')
 
-    if not is_approx:
-        print('Brute force solution: ', min_seq)
-
     return min_cost, min_seq, elapsed, tap_solved
 
 
@@ -2211,7 +2217,7 @@ def lazy_greedy_heuristic():
 
     bound, eval_taps, _ = eval_sequence(
         net_b, lzg_order, a_eq_tstt, b_eq_tstt, num_crews=num_crews)
-    tap_solved = len(damaged_dict)+2
+    tap_solved = len(damaged_dict)+1
 
     fname = save_dir + '/lazygreedy_solution'
     save(fname + '_obj', bound)
@@ -2449,6 +2455,392 @@ def greedy_heuristic_mult(
     return bound, path, elapsed, tap_solved
 
 
+def minspan(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_before, num_crews):
+    """finds a min makespan assignment to crews using a decreasing processing time greedy
+    algorithm (4/3 approximation) then solves greedily within crews"""
+    start = time.time()
+
+    fname = net_after.save_dir + '/minmake_solution'
+    if not os.path.exists(fname + extension):
+        test_net = deepcopy(net_after)
+        sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1], reverse=True)
+        order_list, __ = zip(*sorted_d)
+
+        # which_crew is a dict where keys are links and values are crew assignments
+        _, which_crew, _ = gen_crew_order(
+            order_list, damaged_dict=test_net.damaged_dict, num_crews=num_crews)
+        init_time = time.time() - start
+
+        # min_seq is a tuples of tuples, where each subtuple is order within a crew
+        min_cost = [0,0]
+        min_seq = [[],[]]
+        elapsed = [0,0]
+        tap_solved = [0,0]
+        min_cost[0], min_seq[0], elapsed[0], tap_solved[0] = decomp_greedy(test_net, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        elapsed[0] += init_time + time_net_before
+        elapsed[1] += init_time + time_net_before
+
+        save(fname + '_obj', min_cost)
+        save(fname + '_path', min_seq)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', tap_solved)
+    else:
+        min_cost = load(fname + '_obj')
+        min_seq = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return min_cost, min_seq, elapsed, tap_solved
+
+
+def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_before, num_crews):
+    """finds a correlation coefficient-based assignment to crews then solves greedily
+    within crews"""
+    start = time.time()
+    taps = 0
+
+    fname = net_after.save_dir + '/decomp_greedy_solution'
+    if not os.path.exists(fname + extension):
+        test_net = deepcopy(net_before)
+        initflow = dict()
+        damaged_links = list(damaged_dict.keys())
+        toassign = deepcopy(damaged_links)
+        for link in damaged_links:
+            initflow[link] = test_net.linkDict[link]['flow']
+        #print('initflow: {}'.format(initflow))
+
+        delta = np.zeros((len(damaged_links),len(damaged_links)))
+        for link in damaged_links:
+            test_net.not_fixed = set([link])
+            TSTT = solve_UE(net=test_net, eval_seq=True, flows=True)
+            taps += 1
+            for l2 in damaged_links:
+                if initflow[l2] == 0:
+                    if test_net.linkDict[l2]['flow'] > 1:
+                        temp = 1
+                    else:
+                        temp = 0
+                else:
+                    temp = (test_net.linkDict[l2]['flow'] - initflow[l2])/initflow[l2]
+                delta[damaged_links.index(link),damaged_links.index(l2)] = temp
+                #print('link 1 {}, link 2 {}, link2 flow {}, cc {}'.format(link,l2,test_net.linkDict[l2]['flow'],temp))
+
+        delprime = deepcopy(delta)
+        print(delprime)
+        which_crew = dict()
+        crews = [0]*num_crews
+        safety = sum(damaged_dict.values())/num_crews
+        #print(toassign)
+        for crew in range(num_crews):
+            i,j = np.unravel_index(np.argmax(delprime), np.array(delprime).shape)
+            l1 = damaged_links[i]
+            l2 = damaged_links[j]
+            if damaged_dict[l1] + damaged_dict[l2] > safety:
+                if damaged_dict[l1] > damaged_dict[l2]:
+                    which_crew[l1] = crew
+                    crews[crew] += damaged_dict[l1]
+                    print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
+                    toassign.remove(l1)
+                else:
+                    which_crew[l2] = crew
+                    crews[crew] += damaged_dict[l2]
+                    print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
+                    toassign.remove(l2)
+            else:
+                which_crew[l1] = crew
+                crews[crew] += damaged_dict[l1]
+                print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
+                toassign.remove(l1)
+                which_crew[l2] = crew
+                crews[crew] += damaged_dict[l2]
+                print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
+                toassign.remove(l2)
+                delprime[i,:] = -1
+                delprime[:,i] = -1
+                delprime[:,j] = -1
+                delprime[j,:] = -1
+
+        while toassign != []:
+            crew = crews.index(min(crews))
+            temp = []
+            for link in toassign:
+                t1 = sum([delta[damaged_links.index(link),damaged_links.index(j)] for j in which_crew if which_crew[j]==crew])
+                t2 = sum([delta[damaged_links.index(i),damaged_links.index(link)] for i in which_crew if which_crew[i]==crew])
+                temp.append(max(t1,t2))
+            ind = temp.index(max(temp))
+            new = toassign[ind]
+            which_crew[new] = crew
+            crews[crew] += damaged_dict[new]
+            print('crew {}, new: {}, current time: {}'.format(crew, new, crews[crew]))
+            toassign.remove(new)
+        print(which_crew)
+        print(crews)
+
+        init_time = time.time() - start
+
+        # min_seq is a tuples of tuples, where each subtuple is order within a crew
+        min_cost = [0,0]
+        min_seq = [[],[]]
+        elapsed = [0,0]
+        tap_solved = [0,0]
+        min_cost[0], min_seq[0], elapsed[0], tap_solved[0] = decomp_greedy(test_net, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        elapsed[0] += init_time + time_net_before
+        tap_solved[0] += taps
+        elapsed[1] += init_time + time_net_before
+        tap_solved[1] += taps
+
+        save(fname + '_obj', min_cost)
+        save(fname + '_path', min_seq)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', tap_solved)
+    else:
+        min_cost = load(fname + '_obj')
+        min_seq = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return min_cost, min_seq, elapsed, tap_solved
+
+
+def decomp_brute_force(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
+    """find optimal global solution by brute force given that links are pre-assigned to crews"""
+    start = time.time()
+    tap_solved = 0
+    damaged_links = []
+    for crew in range(num_crews):
+        damaged_links.append([])
+    for link in damaged_dict.keys():
+        damaged_links[which_crew[link]].append(link)
+    print(damaged_links)
+
+    print('Finding the optimal sequence for the decomposed problem...')
+    sub_sequences = [0]*num_crews
+    for crew in range(num_crews):
+        sub_sequences[crew] = itertools.permutations(damaged_links[crew])
+    all_sequences = itertools.product(*sub_sequences)
+
+    i = 0
+    min_cost = 1e+80
+    min_seq = None
+
+    for sequence in all_sequences:
+        seq_net = deepcopy(net_after)
+        cost, eval_taps, __ = eval_working_sequence(
+            seq_net, sequence, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        tap_solved += eval_taps
+
+        if cost < min_cost or min_cost == 1e+80:
+            min_cost = cost
+            min_seq = sequence
+        i += 1
+
+    elapsed = time.time() - start
+    bound, __, __ = eval_sequence(
+        seq_net, min_seq, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+    return min_cost, min_seq, elapsed, tap_solved
+
+
+def decomp_greedy(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
+    """find sequential greedy solution given that links are pre-assigned to crews"""
+    start = time.time()
+    print('Finding the greedy assignment for the decomposed problem...')
+    tap_solved = 0
+    damaged_links = []
+    decoy_dd = []
+    path = []
+
+    for crew in range(num_crews):
+        damaged_links.append([])
+        decoy_dd.append({})
+        path.append([])
+    for link in damaged_dict.keys():
+        damaged_links[which_crew[link]].append(link)
+        decoy_dd[which_crew[link]][link] = damaged_dict[link]
+    print(damaged_links)
+
+    eligible_to_add = deepcopy(damaged_links)
+    flat_eligible = [link for crew in eligible_to_add for link in crew]
+    test_net = deepcopy(net_after)
+    after_ = after_eq_tstt
+    crew_order_list = []
+    crews = [0]*num_crews
+    completion = dict()
+    base_idx = -1
+
+    new_tstts = []
+    new_bb = {}
+    for link in flat_eligible:
+        not_fixed = set(damaged_dict).difference(set(crew_order_list[:base_idx+1]))
+        not_fixed.difference_update(set([link]))
+        test_net.not_fixed = set(not_fixed)
+
+        after_fix_tstt = solve_UE(net=test_net, eval_seq=True)
+        memory[frozenset(test_net.not_fixed)] = after_fix_tstt
+        tap_solved += 1
+
+        diff = after_ - after_fix_tstt
+        new_bb[link] = after_ - after_fix_tstt
+        new_tstts.append(after_fix_tstt)
+
+    sorted_d = []
+    ordered_days = []
+    orderedb_benefits = []
+    order = []
+    for crew in range(num_crews):
+        sorted_d.append(sorted(decoy_dd[crew].items(), key=lambda x: x[1]))
+        ordered_days.append([])
+        orderedb_benefits.append([])
+        order.append([])
+        for key, value in sorted_d[crew]:
+            ordered_days[crew].append(value)
+            orderedb_benefits[crew].append(new_bb[key])
+        _, _, order[crew] = orderlists(orderedb_benefits[crew], ordered_days[crew], rem_keys=sorted_d[crew])
+
+    temp = []
+    for crew in range(num_crews):
+        temp.append(damaged_dict[order[crew][0][0]])
+    for el in sorted(temp):
+        crew = temp.index(el)
+        crew_order_list.append(order[crew][0][0])
+        crews[crew] += el
+        completion[order[crew][0][0]] = deepcopy(crews[crew])
+        path[crew].append(order[crew][0][0])
+
+    min_index = flat_eligible.index(crew_order_list[0])
+    after_ = new_tstts[min_index]
+    base_idx = 0
+    decoy_dd = deepcopy(decoy_dd)
+    for crew in range(num_crews):
+        flat_eligible.remove(path[crew][0])
+        eligible_to_add[crew].remove(path[crew][0])
+        del decoy_dd[crew][path[crew][0]]
+
+
+    while flat_eligible != []:
+        print('Eligible list: {}, current partial solution: {}'.format(flat_eligible,path))
+        active = crews.index(min(crews))
+        new_tstts = []
+        new_bb = {}
+        if eligible_to_add[active] == []:
+            duration = 0
+            for link in flat_eligible:
+                if decoy_dd[which_crew[link]][link] > duration:
+                    duration = decoy_dd[which_crew[link]][link]
+                    to_move = link
+            eligible_to_add[which_crew[to_move]].remove(to_move)
+            del decoy_dd[which_crew[to_move]][to_move]
+            which_crew[to_move] = active
+            eligible_to_add[active].append(to_move)
+            decoy_dd[active][to_move] = duration
+            print('Moved link {} to crew {}, new list: {}, new dd: {}'.format(
+                to_move,active,eligible_to_add[active],decoy_dd[active]))
+        for link in eligible_to_add[active]:
+            not_fixed = set(damaged_dict).difference(set(crew_order_list[:base_idx+1]))
+            not_fixed.difference_update(set([link]))
+            test_net.not_fixed = set(not_fixed)
+
+            after_fix_tstt = solve_UE(net=test_net, eval_seq=True)
+            memory[frozenset(test_net.not_fixed)] = after_fix_tstt
+            tap_solved += 1
+
+            diff = after_ - after_fix_tstt
+            new_bb[link] = after_ - after_fix_tstt
+            new_tstts.append(after_fix_tstt)
+
+        ordered_days = []
+        orderedb_benefits = []
+        order = []
+        sorted_d = sorted(decoy_dd[active].items(), key=lambda x: x[1])
+        for key, value in sorted_d:
+            ordered_days.append(value)
+            orderedb_benefits.append(new_bb[key])
+        _, _, order = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
+
+        try:
+            link_to_add = order[0][0]
+        except:
+            print('order: {}'.format(order))
+            link_to_add = order[0][0]
+        crews[active] += damaged_dict[link_to_add]
+        completion[link_to_add] = deepcopy(crews[active])
+
+        if completion[link_to_add] == max(crews):
+            crew_order_list.append(link_to_add)
+        else:
+            crew_order_list.insert(len(crew_order_list) - num_crews +
+                sorted(crews).index(crews[active]) + 1 ,link_to_add)
+        path[active].append(link_to_add)
+
+        if completion[link_to_add] == min(crews):
+            min_index = eligible_to_add[active].index(link_to_add)
+            after_ = new_tstts[min_index]
+            baseidx = crew_order_list.index(link_to_add)
+        else:
+            base = [k for k, v in completion.items() if v==min(crews)][0]
+            baseidx = crew_order_list.index(base)
+            not_fixed = set(damaged_dict).difference(set(crew_order_list[:baseidx+1]))
+            test_net.not_fixed = set(not_fixed)
+            after_ = solve_UE(net=test_net, eval_seq=True)
+            memory[frozenset(test_net.not_fixed)] = after_
+            tap_solved += 1
+
+        flat_eligible.remove(link_to_add)
+        eligible_to_add[active].remove(link_to_add)
+        decoy_dd = deepcopy(decoy_dd)
+        del decoy_dd[active][link_to_add]
+
+    net = deepcopy(net_after)
+    tap_solved += 1
+    elapsed = time.time() - start
+
+    bound, __, __ = eval_sequence(
+            net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+    return bound, path, elapsed, tap_solved
+
+
+def decomp_IF(net_before, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
+    start = time.time()
+    print('Finding the IF assignment for the decomposed problem ...')
+    tot_flow = 0
+    if_net = deepcopy(net_before)
+    for ij in if_net.linkDict:
+        tot_flow += if_net.linkDict[ij]['flow']
+
+    damaged_links = []
+    path = []
+    for crew in range(num_crews):
+        damaged_links.append([])
+        path.append([])
+    for link in damaged_dict.keys():
+        damaged_links[which_crew[link]].append(link)
+    print(damaged_links)
+
+    if_dict = {}
+    for link_id in damaged_dict.keys():
+        link_flow = if_net.linkDict[link_id]['flow']
+        if_dict[link_id] = link_flow / tot_flow
+    sorted_d = sorted(if_dict.items(), key=lambda x: x[1], reverse=True)
+
+    for link_id, v in sorted_d:
+        path[which_crew[link_id]].append(link_id)
+
+    elapsed = time.time() - start
+    bound, __, __ = eval_sequence(if_net, path, after_eq_tstt, before_eq_tstt,
+        num_crews=num_crews)
+    tap_solved = 1
+
+    return bound, path, elapsed, tap_solved
+
 def make_art_links():
     """creates artificial links with travel time and length 10x before eq shortest path"""
     start = time.time()
@@ -2668,6 +3060,7 @@ if __name__ == '__main__':
     else:
         num_crews = int(args.num_crews[0])
         alt_crews = list(args.num_crews[1:])
+    decomp = args.decomp
     tables = args.tables
     graphing = args.graphing
     scenario_file = args.scenario
@@ -3387,6 +3780,100 @@ if __name__ == '__main__':
                 memory1 = deepcopy(memory)
 
 
+                if decomp:
+                    # min makespan, then greedy and IF
+                    minspan_obj, minspan_soln, minspan_elapsed, minspan_num_tap = minspan(net_before,
+                        net_after, after_eq_tstt, before_eq_tstt, time_net_before, num_crews)
+                    minspan_elapsed[0] += greedy_elapsed
+                    minspan_elapsed[1] += greedy_elapsed
+                    minspan_num_tap[0] += greedy_num_tap + len(damaged_links) - 2
+                    minspan_num_tap[1] += greedy_num_tap + len(damaged_links) - 2
+                    print('Min makespan objective using greedy with {} crew(s): {}, path: {}'.format(
+                          num_crews, minspan_obj[0], minspan_soln[0]))
+                    print('Min makespan objective using IF with {} crew(s): {}, path: {}'.format(
+                          num_crews, minspan_obj[1], minspan_soln[1]))
+                    if multiclass and isinstance(net_after.tripfile, list):
+                        test_net = deepcopy(net_after)
+                        minspan_obj_mc, __, __ = eval_sequence(test_net, minspan_soln, after_eq_tstt,
+                            before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                        print('Min makespan objective and demand class breakdown with {} crew(s): \
+                              {}'.format(num_crews, minspan_obj_mc))
+                    if alt_crews != None:
+                        minspan_obj_mult = [0]*(len(alt_crews)+1)
+                        minspan_obj_mult[0] = minspan_obj
+                        minspan_soln_mult = [0]*(len(alt_crews)+1)
+                        minspan_soln_mult[0] = minspan_soln
+                        minspan_elapsed_mult = [0]*(len(alt_crews)+1)
+                        minspan_elapsed_mult[0] = minspan_elapsed
+                        minspan_num_tap_mult = [0]*(len(alt_crews)+1)
+                        minspan_num_tap_mult[0] = minspan_num_tap
+                        for num in range(len(alt_crews)):
+                            memory = deepcopy(memory1)
+                            (minspan_obj_mult[num+1], minspan_soln_mult[num+1], minspan_elapsed_mult[num+1],
+                                minspan_num_tap_mult[num+1]) = minspan(net_before, net_after, after_eq_tstt,
+                                before_eq_tstt, time_net_before, alt_crews[num])
+                            minspan_elapsed_mult[num+1] += greedy_elapsed
+                            minspan_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 2
+                            print('Min makespan objective with {} crew(s): {}, path: {}'.format(
+                                  alt_crews[num], minspan_obj_mult[num+1], minspan_soln_mult[num+1]))
+                            if multiclass and isinstance(net_after.tripfile, list):
+                                test_net = deepcopy(net_after)
+                                temp, __, __ = eval_sequence(test_net, minspan_soln_mult[num+1],
+                                    after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num],
+                                    multiclass=multiclass)
+                                minspan_obj_mc.append(temp)
+                                minspan_obj_mc[num+1].insert(0, minspan_obj_mult[num+1])
+                                print('Min makespan objective and demand class breakdown with {} \
+                                      crew(s): {}'.format(num_crews, minspan_obj_mc[num+1]))
+                    memory = deepcopy(memory1)
+
+                    # ccassign, then greedy and IF
+                    cc_obj, cc_soln, cc_elapsed, cc_num_tap = ccassign(net_before, net_after,
+                        after_eq_tstt, before_eq_tstt, time_net_before, num_crews)
+                    cc_elapsed[0] += greedy_elapsed
+                    cc_elapsed[1] += greedy_elapsed
+                    cc_num_tap[0] += greedy_num_tap + len(damaged_links) - 2
+                    cc_num_tap[1] += greedy_num_tap + len(damaged_links) - 2
+                    print('CC Assign objective using greedy with {} crew(s): {}, path: {}'.format(
+                          num_crews, cc_obj[0], cc_soln[0]))
+                    print('CC Assign objective using IF with {} crew(s): {}, path: {}'.format(
+                          num_crews, cc_obj[1], cc_soln[1]))
+                    if multiclass and isinstance(net_after.tripfile, list):
+                        test_net = deepcopy(net_after)
+                        cc_obj_mc, __, __ = eval_sequence(test_net, cc_soln, after_eq_tstt,
+                            before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                        print('Min makespan objective and demand class breakdown with {} crew(s): \
+                              {}'.format(num_crews, cc_obj_mc))
+                    if alt_crews != None:
+                        cc_obj_mult = [0]*(len(alt_crews)+1)
+                        cc_obj_mult[0] = cc_obj
+                        cc_soln_mult = [0]*(len(alt_crews)+1)
+                        cc_soln_mult[0] = cc_soln
+                        cc_elapsed_mult = [0]*(len(alt_crews)+1)
+                        cc_elapsed_mult[0] = cc_elapsed
+                        cc_num_tap_mult = [0]*(len(alt_crews)+1)
+                        cc_num_tap_mult[0] = cc_num_tap
+                        for num in range(len(alt_crews)):
+                            memory = deepcopy(memory1)
+                            (cc_obj_mult[num+1], cc_soln_mult[num+1], cc_elapsed_mult[num+1],
+                                cc_num_tap_mult[num+1]) = ccassign(net_before, net_after, after_eq_tstt,
+                                before_eq_tstt, time_net_before, alt_crews[num])
+                            cc_elapsed_mult[num+1] += greedy_elapsed
+                            cc_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 2
+                            print('CC Assign objective with {} crew(s): {}, path: {}'.format(
+                                  alt_crews[num], cc_obj_mult[num+1], cc_soln_mult[num+1]))
+                            if multiclass and isinstance(net_after.tripfile, list):
+                                test_net = deepcopy(net_after)
+                                temp, __, __ = eval_sequence(test_net, cc_soln_mult[num+1],
+                                    after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num],
+                                    multiclass=multiclass)
+                                cc_obj_mc.append(temp)
+                                cc_obj_mc[num+1].insert(0, cc_obj_mult[num+1])
+                                print('Min makespan objective and demand class breakdown with {} \
+                                      crew(s): {}'.format(num_crews, cc_obj_mc[num+1]))
+                    memory = deepcopy(memory1)
+
+
                 # Get optimal solution via brute force
                 if opt:
                     opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
@@ -3666,9 +4153,6 @@ if __name__ == '__main__':
                     t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
                     if opt:
                         t.add_row(['OPTIMAL', opt_obj_mc, opt_elapsed, opt_num_tap])
-                    if approx:
-                        t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
-                        t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mc, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3681,6 +4165,12 @@ if __name__ == '__main__':
                             pass
                     if sa:
                         t.add_row(['Simulated Annealing', sa_obj_mc, sa_elapsed, sa_num_tap])
+                    if decomp:
+                        t.add_row(['Min Makespan', minspan_obj_mc, minspan_elapsed, minspan_num_tap])
+                        t.add_row(['CC Assign', cc_obj_mc, cc_elapsed, cc_num_tap])
+                    if approx:
+                        t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
                     t.add_row(['GREEDY', greedy_obj_mc, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj_mc, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj_mc, lc_elapsed, lc_num_tap])
@@ -3696,9 +4186,6 @@ if __name__ == '__main__':
                     t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
                     if opt:
                         t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
-                    if approx:
-                        t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
-                        t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3711,6 +4198,14 @@ if __name__ == '__main__':
                             pass
                     if sa:
                         t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
+                    if decomp:
+                        t.add_row(['Min Makespan (greedy)', minspan_obj[0], minspan_elapsed[0], minspan_num_tap[0]])
+                        t.add_row(['Min Makespan (IF)', minspan_obj[1], minspan_elapsed[1], minspan_num_tap[1]])
+                        t.add_row(['CC Assign (greedy)', cc_obj[0], cc_elapsed[0], cc_num_tap[0]])
+                        t.add_row(['CC Assign (IF)', cc_obj[1], cc_elapsed[1], cc_num_tap[1]])
+                    if approx:
+                        t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj, lc_elapsed, lc_num_tap])
@@ -3732,9 +4227,6 @@ if __name__ == '__main__':
                             else:
                                 t.add_row(['OPTIMAL '+str(alt_crews[num-1]), opt_obj_mult[num],
                                     opt_elapsed_mult[num], opt_num_tap])
-                    if approx:
-                        t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
-                        t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3747,6 +4239,12 @@ if __name__ == '__main__':
                             pass
                     if sa:
                         t.add_row(['Simulated Annealing', sa_obj_mult, sa_elapsed, sa_num_tap])
+                    if decomp:
+                        t.add_row(['Min Makespan', minspan_obj_mult, minspan_elapsed, minspan_num_tap])
+                        t.add_row(['CC Assign', cc_obj_mult, cc_elapsed, cc_num_tap])
+                    if approx:
+                        t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
+                        t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
                     t.add_row(['GREEDY', greedy_obj_mult, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj_mult, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj_mult, lc_elapsed, lc_num_tap])
@@ -3788,6 +4286,15 @@ if __name__ == '__main__':
                         pass
                 if sa:
                     print('simulated annealing: ', sa_soln)
+                    print('---------------------------')
+                if decomp:
+                    print('min makespan (greedy): ', minspan_soln[0])
+                    print('---------------------------')
+                    print('min makespan (IF): ', minspan_soln[1])
+                    print('---------------------------')
+                    print('cc assign (greedy): ', cc_soln[0])
+                    print('---------------------------')
+                    print('cc assign (IF): ', cc_soln[1])
                     print('---------------------------')
                 print('greedy: ', greedy_soln)
                 print('---------------------------')
