@@ -2472,17 +2472,20 @@ def minspan(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befor
         init_time = time.time() - start
 
         # min_seq is a tuples of tuples, where each subtuple is order within a crew
-        min_cost = [0,0]
-        min_seq = [[],[]]
-        elapsed = [0,0]
-        tap_solved = [0,0]
+        min_cost = [0,0,0]
+        min_seq = [[],[],[]]
+        elapsed = [0,0,0]
+        tap_solved = [0,0,0]
         min_cost[0], min_seq[0], elapsed[0], tap_solved[0] = decomp_greedy(test_net, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_force(test_net, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
         elapsed[0] += init_time + time_net_before
         elapsed[1] += init_time + time_net_before
+        elapsed[2] += init_time + time_net_before
 
         save(fname + '_obj', min_cost)
         save(fname + '_path', min_seq)
@@ -2591,11 +2594,15 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        min_cost[21], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_force(test_net, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
         elapsed[0] += init_time + time_net_before
         tap_solved[0] += taps
         elapsed[1] += init_time + time_net_before
         tap_solved[1] += taps
+        elapsed[2] += init_time + time_net_before
+        tap_solved[2] += taps
 
         save(fname + '_obj', min_cost)
         save(fname + '_path', min_seq)
@@ -3786,11 +3793,15 @@ if __name__ == '__main__':
                         net_after, after_eq_tstt, before_eq_tstt, time_net_before, num_crews)
                     minspan_elapsed[0] += greedy_elapsed
                     minspan_elapsed[1] += greedy_elapsed
+                    minspan_elapsed[2] += greedy_elapsed
                     minspan_num_tap[0] += greedy_num_tap + len(damaged_links) - 2
                     minspan_num_tap[1] += greedy_num_tap + len(damaged_links) - 2
-                    print('Min makespan objective using greedy with {} crew(s): {}, path: {}'.format(
+                    minspan_num_tap[2] += greedy_num_tap + len(damaged_links) - 2
+                    print('Min makespan objective using optimal within {} crew(s): {}, path: {}'.format(
+                          num_crews, minspan_obj[2], minspan_soln[2]))
+                    print('Min makespan objective using greedy within {} crew(s): {}, path: {}'.format(
                           num_crews, minspan_obj[0], minspan_soln[0]))
-                    print('Min makespan objective using IF with {} crew(s): {}, path: {}'.format(
+                    print('Min makespan objective using IF within {} crew(s): {}, path: {}'.format(
                           num_crews, minspan_obj[1], minspan_soln[1]))
                     if multiclass and isinstance(net_after.tripfile, list):
                         test_net = deepcopy(net_after)
@@ -3832,11 +3843,15 @@ if __name__ == '__main__':
                         after_eq_tstt, before_eq_tstt, time_net_before, num_crews)
                     cc_elapsed[0] += greedy_elapsed
                     cc_elapsed[1] += greedy_elapsed
+                    cc_elapsed[2] += greedy_elapsed
                     cc_num_tap[0] += greedy_num_tap + len(damaged_links) - 2
                     cc_num_tap[1] += greedy_num_tap + len(damaged_links) - 2
-                    print('CC Assign objective using greedy with {} crew(s): {}, path: {}'.format(
+                    cc_num_tap[2] += greedy_num_tap + len(damaged_links) - 2
+                    print('CC Assign objective using optimal within {} crew(s): {}, path: {}'.format(
+                          num_crews, cc_obj[2], cc_soln[2]))
+                    print('CC Assign objective using greedy within {} crew(s): {}, path: {}'.format(
                           num_crews, cc_obj[0], cc_soln[0]))
-                    print('CC Assign objective using IF with {} crew(s): {}, path: {}'.format(
+                    print('CC Assign objective using IF within {} crew(s): {}, path: {}'.format(
                           num_crews, cc_obj[1], cc_soln[1]))
                     if multiclass and isinstance(net_after.tripfile, list):
                         test_net = deepcopy(net_after)
@@ -4288,9 +4303,13 @@ if __name__ == '__main__':
                     print('simulated annealing: ', sa_soln)
                     print('---------------------------')
                 if decomp:
+                    print('min makespan (optimal): ', minspan_soln[2])
+                    print('---------------------------')
                     print('min makespan (greedy): ', minspan_soln[0])
                     print('---------------------------')
                     print('min makespan (IF): ', minspan_soln[1])
+                    print('---------------------------')
+                    print('cc assign (optimal): ', cc_soln[2])
                     print('---------------------------')
                     print('cc assign (greedy): ', cc_soln[0])
                     print('---------------------------')
