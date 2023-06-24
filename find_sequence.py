@@ -1971,6 +1971,73 @@ def LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar):
     return bound, path, elapsed, tap_solved
 
 
+def altLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb,
+            bb, bb_time, swapped_links):
+    """approx solution method based on estimating Largest Average Smith Ratio
+    using the preprocessing function, then supplementing with greedy choices
+    for the first k slots"""
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/altLASR_bound'
+    if not os.path.exists(fname + extension):
+        LASR_net = deepcopy(net_before)
+
+        order = np.zeros(len(damaged_links))
+        for i in range(len(damaged_links)):
+            order[i] = Z_bar[i]/list(damaged_dict.values())[i]
+
+        c = list(zip(order, damaged_links))
+        sorted_c = sorted(c,reverse=True)
+        LASR_benefits, LASR_path = zip(*sorted_c)
+        print('Sorted LASR benefits and path: ', sorted_c)
+
+        # Get best immediate benefit
+        lg_dict = {}
+        for link in damaged_links:
+            if link not in swapped_links:
+                lg_dict[link] = bb[link]
+            else:
+                lg_dict[link] = wb[link]
+        ordered_days, orderedb_benefits = [], []
+        sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
+        for key, value in sorted_d:
+            ordered_days.append(value)
+            orderedb_benefits.append(lg_dict[key])
+        ob, od, lzg_order = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
+        lzg_order = [i[0] for i in lzg_order]
+        bdratio = [ob[i]/od[i] for i in range(len(ob))]
+        print('Sorted LZG benefits/duration: {} and path: {}'.format(bdratio, lzg_order))
+
+        # Improve pure LASR solution
+        to_move = []
+        for i in range(num_crews):
+            if bdratio[i] > LASR_benefits[num_crews-i-1]:
+                to_move.append(lzg_order[i])
+        path = to_move
+        for ij in LASR_path:
+            if ij not in path:
+                path.append(ij)
+
+        print('altLASR path: ', path)
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, __ = eval_sequence(
+            LASR_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
+
 def SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
     """simple heuristic which orders link for repair based on shortest repair time"""
     start = time.time()
@@ -2522,7 +2589,8 @@ def make_art_links():
     return art_links
 
 
-def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False):
+def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False,
+                     num_crews = 1, which_crew = None):
     """function to map all links and nodes, highlighting damaged links"""
     xMax = max(coord_dict.values())[0]
     xMin = min(coord_dict.values())[0]
@@ -2560,6 +2628,9 @@ def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False):
     # Plot links
     segments = list()
     damaged_segments = list()
+    if num_crews != 1:
+        for crew in range(num_crews):
+            damaged_segments.append([])
 
     if NETWORK.find('Berlin') >= 0:
         line_width = 0.0025
@@ -2578,12 +2649,22 @@ def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False):
             coord_dict[net.link[ij].head][0]-coord_dict[net.link[ij].tail][0],
             coord_dict[net.link[ij].head][1]-coord_dict[net.link[ij].tail][1],
             length_includes_head = True, width = line_width)
-        damaged_segments.append(line)
+        if num_crews == 1:
+            damaged_segments.append(line)
+        else:
+            damaged_segments[which_crew[ij]].append(line)
 
     lc = mc.PatchCollection(segments)
-    lc_damaged = mc.PatchCollection(damaged_segments, color = 'tab:red')
     ax.add_collection(lc)
-    ax.add_collection(lc_damaged)
+    if num_crews == 1:
+        lc_damaged = mc.PatchCollection(damaged_segments, color = 'tab:red')
+        ax.add_collection(lc_damaged)
+    else:
+        jet = cm.get_cmap('jet', num_crews)
+        lc_damaged = list()
+        for crew in range(num_crews):
+            lc_damaged.append(mc.PatchCollection(damaged_segments[crew], color = jet(crew/num_crews)))
+            ax.add_collection(lc_damaged[crew])
     ax.set_axis_off()
     plt.title('Map of ' + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links))
         + ' damaged links', fontsize=12)
@@ -3208,7 +3289,7 @@ if __name__ == '__main__':
                     preprocess_elapsed = time.time() - preprocess_st
                     time_before = preprocess_elapsed + time_net_before
 
-                    # Largest Averge First Order
+                    # Largest Average First Order
                     LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
                         net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                     LAFO_num_tap += preprocessing_num_tap
@@ -3229,7 +3310,7 @@ if __name__ == '__main__':
                         print('LAFO_obj: ', LAFO_obj_mult)
 
 
-                    # Largest Averge Smith Ratio
+                    # Largest Average Smith Ratio
                     LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(
                         net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                     LASR_num_tap += preprocessing_num_tap
@@ -3248,6 +3329,30 @@ if __name__ == '__main__':
                             LASR_obj_mult[num+1], __, __ = eval_sequence(test_net, LASR_soln,
                                 after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
                         print('LASR_obj: ', LASR_obj_mult)
+
+
+                    # Modified LASR
+                    #altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
+                    #    net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb, bb,
+                    #    bb_time, swapped_links)
+                    #altLASR_num_tap += preprocessing_num_tap
+                    #if alt_crews == None and not multiclass:
+                    #    print('altLASR_obj: ', altLASR_obj)
+                    #elif multiclass and isinstance(net_after.tripfile, list):
+                    #    test_net = deepcopy(net_after)
+                    #    altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
+                    #        after_eq_tstt, before_eq_tstt, num_crews=num_crews,
+                    #        multiclass=multiclass)
+                    #    print('altLASR_obj: ', altLASR_obj_mc)
+                    #else:
+                    #    altLASR_obj_mult = [0]*(len(alt_crews)+1)
+                    #    altLASR_obj_mult[0] = LAFO_obj
+                    #    for num in range(len(alt_crews)):
+                    #        test_net = deepcopy(net_before)
+                    #        altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
+                    #            after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                    #    print('altLASR_obj: ', altLASR_obj_mult)
+
 
                     # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
                     #     net_after, after_eq_tstt, before_eq_tstt, is_approx=True,
@@ -3669,6 +3774,7 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
+                        #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mc, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3699,6 +3805,7 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
+                        #t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3719,6 +3826,23 @@ if __name__ == '__main__':
                     t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
                     t.set_style(MSWORD_FRIENDLY)
                     print(t)
+                    if num_crews != 1:
+                        if opt:
+                            order_list = opt_soln
+                            print('Mapping crew assignments from the brute force solution')
+                        elif sa and beam_search and r_algo_obj <= sa_obj:
+                            order_list = r_algo_path
+                            print('Mapping crew assignments from the beam search solution')
+                        elif sa:
+                            order_list = sa_soln
+                            print('Mapping crew assignments from the simulated annealing solution')
+                        else:
+                            order_list = r_algo_path
+                            print('Mapping crew assignments from the beam search solution')
+                        __, which_crew, __ = gen_crew_order(
+                            order_list, damaged_dict=damaged_dict, num_crews=num_crews)
+                        plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True,
+                            num_crews=num_crews, which_crew=which_crew)
 
                 else:
                     t = PrettyTable()
@@ -3735,6 +3859,7 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
+                        #t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3772,6 +3897,8 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('approx-LASR: ', LASR_soln)
                     print('---------------------------')
+                    #print('alt-LASR: ', altLASR_soln)
+                    #print('---------------------------')
                 if opt:
                     print('optimal by brute force: ', opt_soln)
                     print('---------------------------')
@@ -3811,6 +3938,7 @@ if __name__ == '__main__':
                 if approx:
                     temp_dict['header'].append('LAFO')
                     temp_dict['header'].append('LASR')
+                    #temp_dict['header'].append('altLASR')
                 if full:
                     temp_dict['header'].append('algo')
                 if beam_search:
@@ -3836,6 +3964,8 @@ if __name__ == '__main__':
                         damaged_seqs[link].append(el+1)
                         el = LASR_soln.index(link)
                         damaged_seqs[link].append(el+1)
+                        #el = altLASR_soln.index(link)
+                        #damaged_seqs[link].append(el+1)
                     if full:
                         el = algo_path.index(link)
                         damaged_seqs[link].append(el+1)
@@ -3895,6 +4025,7 @@ if __name__ == '__main__':
             if approx:
                 LAFO_soln_ineq = load(damaged_dict_preset + '/' + 'LAFO_bound_path')
                 LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
+                #altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
             if opt:
                 opt_soln_ineq = load(damaged_dict_preset + '/' + 'min_seq_path')
             if full:
@@ -3920,6 +4051,8 @@ if __name__ == '__main__':
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
                 LASR_obj_ineq, __, __ = eval_sequence(net_after, LASR_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                #altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
+                #    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
             if opt:
                 opt_obj_ineq, __, __ = eval_sequence(net_after, opt_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
@@ -3962,6 +4095,8 @@ if __name__ == '__main__':
                     LAFO_obj_ineq)])
                 t.add_row(['approx-LASR', LASR_obj_mc, LASR_obj_ineq], percentChange(LASR_obj_mc,
                     LASR_obj_ineq))
+                #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
+                #    altLASR_obj_ineq))
             if full:
                 t.add_row(['FULL ALGO', algo_obj_mc, algo_obj_ineq, percentChange(algo_obj_mc,
                     algo_obj_ineq)])
