@@ -2470,6 +2470,7 @@ def minspan(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befor
         _, which_crew, _ = gen_crew_order(
             order_list, damaged_dict=test_net.damaged_dict, num_crews=num_crews)
         init_time = time.time() - start
+        print('Time to find minspan crew assignments:',init_time)
 
         # min_seq is a tuples of tuples, where each subtuple is order within a crew
         min_cost = [0,0,0]
@@ -2480,6 +2481,8 @@ def minspan(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befor
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        #min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_sa(test_net, which_crew,
+        #    after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         #min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_force(test_net, which_crew,
         #    after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
@@ -2533,7 +2536,7 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
                 #print('link 1 {}, link 2 {}, link2 flow {}, cc {}'.format(link,l2,test_net.linkDict[l2]['flow'],temp))
 
         delprime = deepcopy(delta)
-        print(delprime)
+        #print(delprime)
         which_crew = dict()
         crews = [0]*num_crews
         safety = sum(damaged_dict.values())/num_crews
@@ -2546,21 +2549,21 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
                 if damaged_dict[l1] > damaged_dict[l2]:
                     which_crew[l1] = crew
                     crews[crew] += damaged_dict[l1]
-                    print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
+                    #print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
                     toassign.remove(l1)
                 else:
                     which_crew[l2] = crew
                     crews[crew] += damaged_dict[l2]
-                    print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
+                    #print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
                     toassign.remove(l2)
             else:
                 which_crew[l1] = crew
                 crews[crew] += damaged_dict[l1]
-                print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
+                #print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
                 toassign.remove(l1)
                 which_crew[l2] = crew
                 crews[crew] += damaged_dict[l2]
-                print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
+                #print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
                 toassign.remove(l2)
                 delprime[i,:] = -1
                 delprime[:,i] = -1
@@ -2578,12 +2581,13 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
             new = toassign[ind]
             which_crew[new] = crew
             crews[crew] += damaged_dict[new]
-            print('crew {}, new: {}, current time: {}'.format(crew, new, crews[crew]))
+            #print('crew {}, new: {}, current time: {}'.format(crew, new, crews[crew]))
             toassign.remove(new)
-        print(which_crew)
-        print(crews)
+        #print(which_crew)
+        #print(crews)
 
         init_time = time.time() - start
+        print('Time to find cc crew assignments:',init_time)
 
         # min_seq is a tuples of tuples, where each subtuple is order within a crew
         min_cost = [0,0,0]
@@ -2621,17 +2625,17 @@ def decomp_brute_force(net_after, which_crew, after_eq_tstt, before_eq_tstt, num
     """find optimal global solution by brute force given that links are pre-assigned to crews"""
     start = time.time()
     tap_solved = 0
-    damaged_links = []
+    damaged_link_list = []
     for crew in range(num_crews):
-        damaged_links.append([])
+        damaged_link_list.append([])
     for link in damaged_dict.keys():
-        damaged_links[which_crew[link]].append(link)
-    print(damaged_links)
+        damaged_link_list[which_crew[link]].append(link)
+    print(damaged_link_list)
 
     print('Finding the optimal sequence for the decomposed problem...')
     sub_sequences = [0]*num_crews
     for crew in range(num_crews):
-        sub_sequences[crew] = itertools.permutations(damaged_links[crew])
+        sub_sequences[crew] = itertools.permutations(damaged_link_list[crew])
     all_sequences = itertools.product(*sub_sequences)
 
     i = 0
@@ -2661,20 +2665,20 @@ def decomp_greedy(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crew
     start = time.time()
     print('Finding the greedy assignment for the decomposed problem...')
     tap_solved = 0
-    damaged_links = []
+    damaged_link_list = []
     decoy_dd = []
     path = []
 
     for crew in range(num_crews):
-        damaged_links.append([])
+        damaged_link_list.append([])
         decoy_dd.append({})
         path.append([])
     for link in damaged_dict.keys():
-        damaged_links[which_crew[link]].append(link)
+        damaged_link_list[which_crew[link]].append(link)
         decoy_dd[which_crew[link]][link] = damaged_dict[link]
-    print(damaged_links)
+    print(damaged_link_list)
 
-    eligible_to_add = deepcopy(damaged_links)
+    eligible_to_add = deepcopy(damaged_link_list)
     flat_eligible = [link for crew in eligible_to_add for link in crew]
     test_net = deepcopy(net_after)
     after_ = after_eq_tstt
@@ -2733,7 +2737,7 @@ def decomp_greedy(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crew
 
 
     while flat_eligible != []:
-        print('Eligible list: {}, current partial solution: {}'.format(flat_eligible,path))
+        #print('Eligible list: {}, current partial solution: {}'.format(flat_eligible,path))
         active = crews.index(min(crews))
         new_tstts = []
         new_bb = {}
@@ -2748,8 +2752,8 @@ def decomp_greedy(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crew
             which_crew[to_move] = active
             eligible_to_add[active].append(to_move)
             decoy_dd[active][to_move] = duration
-            print('Moved link {} to crew {}, new list: {}, new dd: {}'.format(
-                to_move,active,eligible_to_add[active],decoy_dd[active]))
+            #print('Moved link {} to crew {}, new list: {}, new dd: {}'.format(
+            #    to_move,active,eligible_to_add[active],decoy_dd[active]))
         for link in eligible_to_add[active]:
             not_fixed = set(damaged_dict).difference(set(crew_order_list[:base_idx+1]))
             not_fixed.difference_update(set([link]))
@@ -2823,14 +2827,14 @@ def decomp_IF(net_before, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
     for ij in if_net.linkDict:
         tot_flow += if_net.linkDict[ij]['flow']
 
-    damaged_links = []
+    damaged_link_list = []
     path = []
     for crew in range(num_crews):
-        damaged_links.append([])
+        damaged_link_list.append([])
         path.append([])
     for link in damaged_dict.keys():
-        damaged_links[which_crew[link]].append(link)
-    print(damaged_links)
+        damaged_link_list[which_crew[link]].append(link)
+    print(damaged_link_list)
 
     if_dict = {}
     for link_id in damaged_dict.keys():
@@ -2921,7 +2925,8 @@ def make_art_links():
     return art_links
 
 
-def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False):
+def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False,
+                     num_crews = 1, which_crew = None):
     """function to map all links and nodes, highlighting damaged links"""
     xMax = max(coord_dict.values())[0]
     xMin = min(coord_dict.values())[0]
@@ -2959,11 +2964,15 @@ def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False):
     # Plot links
     segments = list()
     damaged_segments = list()
+    if num_crews != 1:
+        for crew in range(num_crews):
+            damaged_segments.append([])
 
     if NETWORK.find('Berlin') >= 0:
         line_width = 0.0025
     else:
         line_width = 0.00025
+
     for ij in [ij for ij in net.link if ij not in damaged_links]:
         line = mpatch.FancyArrow(coord_dict[net.link[ij].tail][0],
             coord_dict[net.link[ij].tail][1],
@@ -2977,12 +2986,22 @@ def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False):
             coord_dict[net.link[ij].head][0]-coord_dict[net.link[ij].tail][0],
             coord_dict[net.link[ij].head][1]-coord_dict[net.link[ij].tail][1],
             length_includes_head = True, width = line_width)
-        damaged_segments.append(line)
+        if num_crews == 1:
+            damaged_segments.append(line)
+        else:
+            damaged_segments[which_crew[ij]].append(line)
 
     lc = mc.PatchCollection(segments)
-    lc_damaged = mc.PatchCollection(damaged_segments, color = 'tab:red')
     ax.add_collection(lc)
-    ax.add_collection(lc_damaged)
+    if num_crews == 1:
+        lc_damaged = mc.PatchCollection(damaged_segments, color = 'tab:red')
+        ax.add_collection(lc_damaged)
+    else:
+        jet = cm.get_cmap('jet', num_crews)
+        lc_damaged = list()
+        for crew in range(num_crews):
+            lc_damaged.append(mc.PatchCollection(damaged_segments[crew], color = jet(crew/num_crews)))
+            ax.add_collection(lc_damaged[crew])
     ax.set_axis_off()
     plt.title('Map of ' + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links))
         + ' damaged links', fontsize=12)
@@ -4231,6 +4250,23 @@ if __name__ == '__main__':
                     t.add_row(['SPT', SPT_obj, SPT_elapsed, SPT_num_tap])
                     t.set_style(MSWORD_FRIENDLY)
                     print(t)
+                    if num_crews != 1:
+                        if opt:
+                            order_list = opt_soln
+                            print('Mapping crew assignments from the brute force solution')
+                        elif sa and beam_search and r_algo_obj <= sa_obj:
+                            order_list = r_algo_path
+                            print('Mapping crew assignments from the beam search solution')
+                        elif sa:
+                            order_list = sa_soln
+                            print('Mapping crew assignments from the simulated annealing solution')
+                        else:
+                            order_list = r_algo_path
+                            print('Mapping crew assignments from the beam search solution')
+                        __, which_crew, __ = gen_crew_order(
+                            order_list, damaged_dict=damaged_dict, num_crews=num_crews)
+                        plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True,
+                            num_crews=num_crews, which_crew=which_crew)
 
                 else:
                     t = PrettyTable()
