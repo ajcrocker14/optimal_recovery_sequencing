@@ -34,6 +34,8 @@ parser.add_argument('-n', '--net_name', type=str, help='network name')
 parser.add_argument('-b', '--num_broken', type=int, help='number of broken bridges')
 parser.add_argument('-a', '--approx', type=bool,
                     help='approximation methods enabled - LAFO and LASR', default=False)
+parser.add_argument('--arc', help='build arc flow MILP using approx values and solve using Gurobi',
+                    type=bool, default=False)
 parser.add_argument('-r', '--reps', type=int, help='number of scenarios with the given parameters',
                     default=5)
 parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
@@ -1590,6 +1592,7 @@ def simple_preprocess(damaged_links, net_after):
 
     return Z_bar, preprocessing_num_tap
 
+
 def preprocessing(damaged_links, net_after):
     """trains a TensorFlow model to predict tstt from the binary repair state"""
     samples = []
@@ -1966,6 +1969,112 @@ def LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar):
         elapsed = time.time() - start + time_before
         bound, eval_taps, __ = eval_sequence(
             LASR_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
+
+def arc_flow(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb,
+             bb, bb_time, swapped_links):
+    """approx solution method using arc flows to schedule estimating arc weights
+    using the preprocessing function"""
+    import gurobipy as gp
+    from gurobipy import GRB
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/arc_soln'
+    if not os.path.exists(fname + extension):
+        arc_net = deepcopy(net_before)
+
+        # Find benefit of repairing each link first
+        lg_dict = {}
+        for link in damaged_links:
+            if link not in swapped_links:
+                lg_dict[link] = bb[link]
+            else:
+                lg_dict[link] = wb[link]
+
+        # Base data (damaged_links is already a list)
+        order = np.zeros(len(damaged_links))
+        weights = dict()
+        for i in range(len(damaged_links)):
+            order[i] = Z_bar[i]/list(damaged_dict.values())[i]
+            weights[list(damaged_dict.keys())[i]] = Z_bar[i]
+        c = list(zip(order, damaged_links))
+        sorted_ = sorted(c,reverse=True)
+        __, J = zip(*sorted_)
+        #print('weights: ', weights)
+        p = [round(damaged_dict[j]) for j in J]
+        print('J = {}, p = {}'.format(J,p))
+
+
+        # Build set of valid nodes and arcs (from Kramer, 2019)
+        T = math.floor(1/num_crews * sum(p) + (num_crews-1) / num_crews * max(p))
+        #print('T: ',T)
+        P = [0] * (T+1)
+        N = []
+        A_ = [ [] for _ in range(len(damaged_links)+1)]
+        P[0] = 1
+        for j in range(len(damaged_dict)):
+            for t in range(T-p[j],-1,-1):
+                if P[t]==1:
+                    P[t+p[j]] = 1
+                    A_[j+1].append((t,t+p[j],J[j]))
+        for t in range(0,T+1):
+            if P[t]==1:
+                N.append(t)
+                A_[0].append((t,T,0))
+        if T not in N:
+            N.append(T)
+        A = [el for elem in A_[1:] for el in elem]
+        #print('length of N is: {}, length of A0 is: {}, A0: {}'.format(len(N),len(A_[0]),A_[0]))
+
+        # Establish arc costs and node balances
+        cost = {arc: weights[arc[2]] * arc[1] for arc in A if arc[0]!=0}
+        temp = {arc: lg_dict[arc[2]] * arc[1] for arc in A if arc[0]==0}
+        cost.update(temp)
+        temp = {arc: 0 for arc in A_[0]}
+        cost.update(temp)
+        balance = {node: 0 for node in N}
+        balance[0], balance[T] = num_crews, -num_crews
+
+        # Create model and add vars and constraints
+        m = gp.Model('arcflow')
+        flow = m.addVars(A, obj=cost, vtype=GRB.BINARY, name='flow')
+        flow0 = m.addVars(A_[0], obj=cost, name='flow0')
+        m.addConstrs((flow.sum('*',q,'*') + flow0.sum('*',q,'*') + balance[q]
+             == flow.sum(q,'*','*') + flow0.sum(q,'*','*') for q in N), 'node')
+        m.addConstrs((flow.sum('*','*',j) >= 1 for j in J), 'links')
+
+        # Optimize and print solution
+        arc_set = []
+        m.optimize()
+        if m.Status == GRB.OPTIMAL:
+            solution = m.getAttr('X', flow)
+            for arc in A:
+                if solution[arc] > 0 and arc[2] != 0:
+                    arc_set.append(arc)
+        else:
+            print('Gurobi solver status not optimal...')
+
+        print('arc set (without loss arcs): ', arc_set)
+        temp = sorted(arc_set, key = lambda x: x[0])
+        path = [link[2] for link in temp]
+        #print('path: ', path)
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, __ = eval_sequence(
+            arc_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
         save(fname + '_obj', bound)
         save(fname + '_path', path)
@@ -2473,22 +2582,29 @@ def minspan(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befor
         print('Time to find minspan crew assignments:',init_time)
 
         # min_seq is a tuples of tuples, where each subtuple is order within a crew
-        min_cost = [0,0,0]
-        min_seq = [[],[],[]]
-        elapsed = [0,0,0]
-        tap_solved = [0,0,0]
+        if num_broken <= 12:
+            temp = 4
+        else:
+            temp = 3
+        min_cost = [0] * temp
+        min_seq = [ [] for _ in range(temp)]
+        elapsed = [0] * temp
+        tap_solved = [0] * temp
         min_cost[0], min_seq[0], elapsed[0], tap_solved[0] = decomp_greedy(test_net, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
-        #min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_sa(test_net, which_crew,
-        #    after_eq_tstt, before_eq_tstt, num_crews=num_crews)
-        #min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_force(test_net, which_crew,
-        #    after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_local(test_net, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        if num_broken <= 12:
+            min_cost[3], min_seq[3], elapsed[3], tap_solved[3] = decomp_brute_global(test_net, which_crew,
+                after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
         elapsed[0] += init_time + time_net_before
         elapsed[1] += init_time + time_net_before
-        #elapsed[2] += init_time + time_net_before
+        elapsed[2] += init_time + time_net_before
+        if num_broken <= 12:
+            elapsed[3] += init_time + time_net_before
 
         save(fname + '_obj', min_cost)
         save(fname + '_path', min_seq)
@@ -2545,30 +2661,33 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
             i,j = np.unravel_index(np.argmax(delprime), np.array(delprime).shape)
             l1 = damaged_links[i]
             l2 = damaged_links[j]
-            if damaged_dict[l1] + damaged_dict[l2] > safety:
-                if damaged_dict[l1] > damaged_dict[l2]:
+            try:
+                if damaged_dict[l1] + damaged_dict[l2] > safety:
+                    if damaged_dict[l1] > damaged_dict[l2]:
+                        which_crew[l1] = crew
+                        crews[crew] += damaged_dict[l1]
+                        #print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
+                        toassign.remove(l1)
+                    else:
+                        which_crew[l2] = crew
+                        crews[crew] += damaged_dict[l2]
+                        #print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
+                        toassign.remove(l2)
+                else:
                     which_crew[l1] = crew
                     crews[crew] += damaged_dict[l1]
                     #print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
                     toassign.remove(l1)
-                else:
                     which_crew[l2] = crew
                     crews[crew] += damaged_dict[l2]
                     #print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
                     toassign.remove(l2)
-            else:
-                which_crew[l1] = crew
-                crews[crew] += damaged_dict[l1]
-                #print('crew {}, l1: {}, current time: {}'.format(crew, l1, crews[crew]))
-                toassign.remove(l1)
-                which_crew[l2] = crew
-                crews[crew] += damaged_dict[l2]
-                #print('crew {}, l2: {}, current time: {}'.format(crew, l2, crews[crew]))
-                toassign.remove(l2)
-                delprime[i,:] = -1
-                delprime[:,i] = -1
-                delprime[:,j] = -1
-                delprime[j,:] = -1
+                    delprime[i,:] = -1
+                    delprime[:,i] = -1
+                    delprime[:,j] = -1
+                    delprime[j,:] = -1
+            except:
+                pass
 
         while toassign != []:
             crew = crews.index(min(crews))
@@ -2590,23 +2709,34 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
         print('Time to find cc crew assignments:',init_time)
 
         # min_seq is a tuples of tuples, where each subtuple is order within a crew
-        min_cost = [0,0,0]
-        min_seq = [[],[],[]]
-        elapsed = [0,0,0]
-        tap_solved = [0,0,0]
+        if num_broken <= 12:
+            temp = 4
+        else:
+            temp = 3
+        min_cost = [0] * temp
+        min_seq = [ [] for _ in range(temp)]
+        elapsed = [0] * temp
+        tap_solved = [0] * temp
+
         min_cost[0], min_seq[0], elapsed[0], tap_solved[0] = decomp_greedy(test_net, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         min_cost[1], min_seq[1], elapsed[1], tap_solved[1] = decomp_IF(net_before, which_crew,
             after_eq_tstt, before_eq_tstt, num_crews=num_crews)
-        #min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_force(test_net, which_crew,
-        #    after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        min_cost[2], min_seq[2], elapsed[2], tap_solved[2] = decomp_brute_local(test_net, which_crew,
+            after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+        if num_broken <= 12:
+            min_cost[3], min_seq[3], elapsed[3], tap_solved[3] = decomp_brute_global(test_net, which_crew,
+                after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
         elapsed[0] += init_time + time_net_before
         tap_solved[0] += taps
         elapsed[1] += init_time + time_net_before
         tap_solved[1] += taps
-        #elapsed[2] += init_time + time_net_before
-        #tap_solved[2] += taps
+        elapsed[2] += init_time + time_net_before
+        tap_solved[2] += taps
+        if num_broken <= 12:
+            elapsed[3] += init_time + time_net_before
+            tap_solved[3] += taps
 
         save(fname + '_obj', min_cost)
         save(fname + '_path', min_seq)
@@ -2621,7 +2751,7 @@ def ccassign(net_before, net_after, after_eq_tstt, before_eq_tstt, time_net_befo
     return min_cost, min_seq, elapsed, tap_solved
 
 
-def decomp_brute_force(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
+def decomp_brute_global(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
     """find optimal global solution by brute force given that links are pre-assigned to crews"""
     start = time.time()
     tap_solved = 0
@@ -2657,7 +2787,54 @@ def decomp_brute_force(net_after, which_crew, after_eq_tstt, before_eq_tstt, num
     bound, __, __ = eval_sequence(
         seq_net, min_seq, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
-    return min_cost, min_seq, elapsed, tap_solved
+    return bound, min_seq, elapsed, tap_solved
+
+
+def decomp_brute_local(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
+    """find optimal order within each crew by brute force given that links are pre-
+    assigned to crews, and acting as if only the links within the crew being optimized
+    are broken"""
+    start = time.time()
+    tap_solved = 0
+    damaged_link_list = []
+    for crew in range(num_crews):
+        damaged_link_list.append([])
+    for link in damaged_dict.keys():
+        damaged_link_list[which_crew[link]].append(link)
+    #print(damaged_link_list)
+
+    print('Finding the quasi-optimal sequence for the decomposed problem...')
+    sub_sequences = [0]*num_crews
+    for crew in range(num_crews):
+        sub_sequences[crew] = itertools.permutations(damaged_link_list[crew])
+    min_cost = [1e+80]*num_crews
+    min_seq = [ [] for _ in range(num_crews)]
+
+    for crew in range(num_crews):
+        sub_net = deepcopy(net_after)
+        subdict = {k: damaged_dict[k] for k in damaged_link_list[crew]}
+        sub_net.damaged_dict = subdict
+        sub_net.not_fixed = set(damaged_link_list[crew])
+        sub_after_eq_tstt = solve_UE(net=sub_net, eval_seq=True, warm_start=False)
+        tap_solved += 1
+        for sequence in sub_sequences[crew]:
+            seq_net = deepcopy(sub_net)
+            cost, eval_taps, __ = eval_working_sequence(
+                seq_net, sequence, sub_after_eq_tstt, before_eq_tstt, num_crews=1)
+            tap_solved += eval_taps
+
+            if cost < min_cost[crew] or min_cost[crew] == 1e+80:
+                min_cost[crew] = cost
+                min_seq[crew] = sequence
+        #print('min seq after finding order for crew {}: {}'.format(crew+1,min_seq))
+
+    elapsed = time.time() - start
+    test_net = deepcopy(net_after)
+    bound, __, __ = eval_sequence(
+        test_net, min_seq, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+    #print('min cost: {}, sequence: {}'.format(bound, min_seq))
+
+    return bound, min_seq, elapsed, tap_solved
 
 
 def decomp_greedy(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
@@ -2676,7 +2853,7 @@ def decomp_greedy(net_after, which_crew, after_eq_tstt, before_eq_tstt, num_crew
     for link in damaged_dict.keys():
         damaged_link_list[which_crew[link]].append(link)
         decoy_dd[which_crew[link]][link] = damaged_dict[link]
-    print(damaged_link_list)
+    #print(damaged_link_list)
 
     eligible_to_add = deepcopy(damaged_link_list)
     flat_eligible = [link for crew in eligible_to_add for link in crew]
@@ -2834,7 +3011,7 @@ def decomp_IF(net_before, which_crew, after_eq_tstt, before_eq_tstt, num_crews):
         path.append([])
     for link in damaged_dict.keys():
         damaged_link_list[which_crew[link]].append(link)
-    print(damaged_link_list)
+    #print(damaged_link_list)
 
     if_dict = {}
     for link_id in damaged_dict.keys():
@@ -3073,6 +3250,10 @@ if __name__ == '__main__':
     net_name = args.net_name
     num_broken = args.num_broken
     approx = args.approx
+    arc = args.arc
+    if arc and not approx:
+        arc = False
+        print('arc reset to False because approx not enabled')
     reps = args.reps
     beam_search = args.beamsearch
     beta = args.beta
@@ -3627,7 +3808,7 @@ if __name__ == '__main__':
                     preprocess_elapsed = time.time() - preprocess_st
                     time_before = preprocess_elapsed + time_net_before
 
-                    # Largest Averge First Order
+                    # Largest Average First Order
                     LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
                         net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                     LAFO_num_tap += preprocessing_num_tap
@@ -3647,8 +3828,7 @@ if __name__ == '__main__':
                                 after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
                         print('LAFO_obj: ', LAFO_obj_mult)
 
-
-                    # Largest Averge Smith Ratio
+                    # Largest Average Smith Ratio
                     LASR_obj, LASR_soln, LASR_elapsed, LASR_num_tap = LASR(
                         net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
                     LASR_num_tap += preprocessing_num_tap
@@ -3673,6 +3853,31 @@ if __name__ == '__main__':
                     #     mc_weights=mc_weights)
                     # approx_num_tap += preprocessing_num_tap
                     # print('Approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
+
+
+                    # arc flow MILP using Z_bar values as weights
+                    if arc:
+                        arc_obj, arc_soln, arc_elapsed, arc_num_tap = arc_flow(
+                            net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb, bb,
+                            bb_time, swapped_links)
+                        arc_num_tap += preprocessing_num_tap
+                        if alt_crews == None and not multiclass:
+                            print('arc_obj: ', arc_obj)
+                        elif multiclass and isinstance(net_after.tripfile, list):
+                            test_net = deepcopy(net_after)
+                            arc_obj_mc, __, __ = eval_sequence(test_net, arc_soln, after_eq_tstt,
+                                before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                            print('arc_obj: ', arc_obj_mc)
+                        else:
+                            arc_obj_mult = [0]*(len(alt_crews)+1)
+                            arc_obj_mult[0] = arc_obj
+                            for num in range(len(alt_crews)):
+                                test_net = deepcopy(net_before)
+                                arc_obj_mult[num+1], __, __ = eval_sequence(test_net, arc_soln,
+                                    after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                            print('arc_obj: ', arc_obj_mult)
+
+
                     memory = deepcopy(memory1)
 
                 # Shortest processing time solution
@@ -3810,14 +4015,11 @@ if __name__ == '__main__':
                     # min makespan, then greedy and IF
                     minspan_obj, minspan_soln, minspan_elapsed, minspan_num_tap = minspan(net_before,
                         net_after, after_eq_tstt, before_eq_tstt, time_net_before, num_crews)
-                    minspan_elapsed[0] += greedy_elapsed
-                    minspan_elapsed[1] += greedy_elapsed
-                    #minspan_elapsed[2] += greedy_elapsed
-                    minspan_num_tap[0] += greedy_num_tap + len(damaged_links) - 2
-                    minspan_num_tap[1] += greedy_num_tap + len(damaged_links) - 2
-                    #minspan_num_tap[2] += greedy_num_tap + len(damaged_links) - 2
-                    #print('Min makespan objective using optimal within {} crew(s): {}, path: {}'.format(
-                    #      num_crews, minspan_obj[2], minspan_soln[2]))
+                    if num_broken <= 12:
+                        print('Min makespan objective using global optimal within {} crew(s): {}, path: {}'.format(
+                              num_crews, minspan_obj[3], minspan_soln[3]))
+                    print('Min makespan objective using local optimal within {} crew(s): {}, path: {}'.format(
+                          num_crews, minspan_obj[2], minspan_soln[2]))
                     print('Min makespan objective using greedy within {} crew(s): {}, path: {}'.format(
                           num_crews, minspan_obj[0], minspan_soln[0]))
                     print('Min makespan objective using IF within {} crew(s): {}, path: {}'.format(
@@ -3842,8 +4044,6 @@ if __name__ == '__main__':
                             (minspan_obj_mult[num+1], minspan_soln_mult[num+1], minspan_elapsed_mult[num+1],
                                 minspan_num_tap_mult[num+1]) = minspan(net_before, net_after, after_eq_tstt,
                                 before_eq_tstt, time_net_before, alt_crews[num])
-                            minspan_elapsed_mult[num+1] += greedy_elapsed
-                            minspan_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 2
                             print('Min makespan objective with {} crew(s): {}, path: {}'.format(
                                   alt_crews[num], minspan_obj_mult[num+1], minspan_soln_mult[num+1]))
                             if multiclass and isinstance(net_after.tripfile, list):
@@ -3860,14 +4060,11 @@ if __name__ == '__main__':
                     # ccassign, then greedy and IF
                     cc_obj, cc_soln, cc_elapsed, cc_num_tap = ccassign(net_before, net_after,
                         after_eq_tstt, before_eq_tstt, time_net_before, num_crews)
-                    cc_elapsed[0] += greedy_elapsed
-                    cc_elapsed[1] += greedy_elapsed
-                    #cc_elapsed[2] += greedy_elapsed
-                    cc_num_tap[0] += greedy_num_tap + len(damaged_links) - 2
-                    cc_num_tap[1] += greedy_num_tap + len(damaged_links) - 2
-                    #cc_num_tap[2] += greedy_num_tap + len(damaged_links) - 2
-                    #print('CC Assign objective using optimal within {} crew(s): {}, path: {}'.format(
-                    #      num_crews, cc_obj[2], cc_soln[2]))
+                    if num_broken <= 12:
+                        print('CC Assign objective using global optimal within {} crew(s): {}, path: {}'.format(
+                              num_crews, cc_obj[3], cc_soln[3]))
+                    print('CC Assign objective using local optimal within {} crew(s): {}, path: {}'.format(
+                          num_crews, cc_obj[2], cc_soln[2]))
                     print('CC Assign objective using greedy within {} crew(s): {}, path: {}'.format(
                           num_crews, cc_obj[0], cc_soln[0]))
                     print('CC Assign objective using IF within {} crew(s): {}, path: {}'.format(
@@ -3892,8 +4089,6 @@ if __name__ == '__main__':
                             (cc_obj_mult[num+1], cc_soln_mult[num+1], cc_elapsed_mult[num+1],
                                 cc_num_tap_mult[num+1]) = ccassign(net_before, net_after, after_eq_tstt,
                                 before_eq_tstt, time_net_before, alt_crews[num])
-                            cc_elapsed_mult[num+1] += greedy_elapsed
-                            cc_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 2
                             print('CC Assign objective with {} crew(s): {}, path: {}'.format(
                                   alt_crews[num], cc_obj_mult[num+1], cc_soln_mult[num+1]))
                             if multiclass and isinstance(net_after.tripfile, list):
@@ -4205,6 +4400,8 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
+                    if arc:
+                        t.add_row(['Arc Flow', arc_obj_mc, arc_elapsed, arc_num_tap])
                     t.add_row(['GREEDY', greedy_obj_mc, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj_mc, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj_mc, lc_elapsed, lc_num_tap])
@@ -4233,15 +4430,21 @@ if __name__ == '__main__':
                     if sa:
                         t.add_row(['Simulated Annealing', sa_obj, sa_elapsed, sa_num_tap])
                     if decomp:
-                        #t.add_row(['Min Makespan (brute force)', minspan_obj[2], minspan_elapsed[2], minspan_num_tap[2]])
+                        if num_broken <= 12:
+                            t.add_row(['Min Makespan (global opt)', minspan_obj[3], minspan_elapsed[3], minspan_num_tap[3]])
+                        t.add_row(['Min Makespan (local opt)', minspan_obj[2], minspan_elapsed[2], minspan_num_tap[2]])
                         t.add_row(['Min Makespan (greedy)', minspan_obj[0], minspan_elapsed[0], minspan_num_tap[0]])
                         t.add_row(['Min Makespan (IF)', minspan_obj[1], minspan_elapsed[1], minspan_num_tap[1]])
-                        #t.add_row(['CC Assign (brute force)', cc_obj[2], cc_elapsed[2], cc_num_tap[2]])
+                        if num_broken <= 12:
+                            t.add_row(['CC Assign (global opt)', cc_obj[3], cc_elapsed[3], cc_num_tap[3]])
+                        t.add_row(['CC Assign (local opt)', cc_obj[2], cc_elapsed[2], cc_num_tap[2]])
                         t.add_row(['CC Assign (greedy)', cc_obj[0], cc_elapsed[0], cc_num_tap[0]])
                         t.add_row(['CC Assign (IF)', cc_obj[1], cc_elapsed[1], cc_num_tap[1]])
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
+                    if arc:
+                        t.add_row(['Arc Flow', arc_obj, arc_elapsed, arc_num_tap])
                     t.add_row(['GREEDY', greedy_obj, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj, lc_elapsed, lc_num_tap])
@@ -4298,6 +4501,8 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
+                    if arc:
+                        t.add_row(['Arc Flow', arc_obj_mult, arc_elapsed, arc_num_tap])
                     t.add_row(['GREEDY', greedy_obj_mult, greedy_elapsed, greedy_num_tap])
                     t.add_row(['LG', lg_obj_mult, lg_elapsed, lg_num_tap])
                     #t.add_row(['Linear Combination', lc_obj_mult, lc_elapsed, lc_num_tap])
@@ -4323,6 +4528,9 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('approx-LASR: ', LASR_soln)
                     print('---------------------------')
+                if arc:
+                    print('arc flow: ', arc_soln)
+                    print('---------------------------')
                 if opt:
                     print('optimal by brute force: ', opt_soln)
                     print('---------------------------')
@@ -4341,14 +4549,20 @@ if __name__ == '__main__':
                     print('simulated annealing: ', sa_soln)
                     print('---------------------------')
                 if decomp:
-                    #print('min makespan (brute force): ', minspan_soln[2])
-                    #print('---------------------------')
+                    if num_broken <= 12:
+                        print('min makespan (global opt): ', minspan_soln[3])
+                        print('---------------------------')
+                    print('min makespan (local opt): ', minspan_soln[2])
+                    print('---------------------------')
                     print('min makespan (greedy): ', minspan_soln[0])
                     print('---------------------------')
                     print('min makespan (IF): ', minspan_soln[1])
                     print('---------------------------')
-                    #print('cc assign (brute force): ', cc_soln[2])
-                    #print('---------------------------')
+                    if num_broken <= 12:
+                        print('cc assign (global opt): ', cc_soln[3])
+                        print('---------------------------')
+                    print('cc assign (local opt): ', cc_soln[2])
+                    print('---------------------------')
                     print('cc assign (greedy): ', cc_soln[0])
                     print('---------------------------')
                     print('cc assign (IF): ', cc_soln[1])
@@ -4375,6 +4589,8 @@ if __name__ == '__main__':
                 if approx:
                     temp_dict['header'].append('LAFO')
                     temp_dict['header'].append('LASR')
+                if arc:
+                    temp_dict['header'].append('Arc')
                 if full:
                     temp_dict['header'].append('algo')
                 if beam_search:
@@ -4399,6 +4615,9 @@ if __name__ == '__main__':
                         el = LAFO_soln.index(link)
                         damaged_seqs[link].append(el+1)
                         el = LASR_soln.index(link)
+                        damaged_seqs[link].append(el+1)
+                    if arc:
+                        el = arc_soln.index(link)
                         damaged_seqs[link].append(el+1)
                     if full:
                         el = algo_path.index(link)
@@ -4459,6 +4678,8 @@ if __name__ == '__main__':
             if approx:
                 LAFO_soln_ineq = load(damaged_dict_preset + '/' + 'LAFO_bound_path')
                 LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
+            if arc:
+                arc_soln_ineq = load(damaged_dict_preset + '/' + 'arc_soln_path')
             if opt:
                 opt_soln_ineq = load(damaged_dict_preset + '/' + 'min_seq_path')
             if full:
@@ -4483,6 +4704,9 @@ if __name__ == '__main__':
                 LAFO_obj_ineq, __, __ = eval_sequence(net_after, LAFO_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
                 LASR_obj_ineq, __, __ = eval_sequence(net_after, LASR_soln_ineq, after_eq_tstt,
+                    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+            if arc:
+                arc_obj_ineq, __, __ = eval_sequence(net_after, arc_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
             if opt:
                 opt_obj_ineq, __, __ = eval_sequence(net_after, opt_soln_ineq, after_eq_tstt,
@@ -4526,6 +4750,9 @@ if __name__ == '__main__':
                     LAFO_obj_ineq)])
                 t.add_row(['approx-LASR', LASR_obj_mc, LASR_obj_ineq], percentChange(LASR_obj_mc,
                     LASR_obj_ineq))
+            if arc:
+                t.add_row(['Arc Flow', arc_obj_mc, arc_obj_ineq], percentChange(arc_obj_mc,
+                    arc_obj_ineq))
             if full:
                 t.add_row(['FULL ALGO', algo_obj_mc, algo_obj_ineq, percentChange(algo_obj_mc,
                     algo_obj_ineq)])
