@@ -20,12 +20,13 @@ BETA = 4.0
 CORES = min(mp.cpu_count(),4)
 
 class Network:
-    def __init__(self, networkFile="", demandFile="", mc_weights=1):
+    def __init__(self, networkFile="", demandFile="", mc_weights=1, demand_mult=1):
         """Class initializer; if both a network file and demand file are specified,
         will read these files to fill the network data structure."""
         self.netfile = networkFile
         self.tripfile = demandFile
         self.mc_weights = mc_weights
+        self.demand_mult = demand_mult
 
 
 def save(fname, data, extension='pickle'):
@@ -53,8 +54,8 @@ def save_fig(plt_path, algo, tight_layout=True, fig_extension="png", resolution=
     plt.savefig(path, format=fig_extension, dpi=resolution)
 
 
-def create_network(netfile=None, tripfile=None, mc_weights=1):
-    net = Network(netfile, tripfile, mc_weights=mc_weights)
+def create_network(netfile=None, tripfile=None, mc_weights=1, demand_mult=1):
+    net = Network(netfile, tripfile, mc_weights=mc_weights, demand_mult=demand_mult)
     return net
 
 
@@ -121,6 +122,10 @@ def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=Fa
             f2.write('<STORE MATRICES>')
             f2.write('\n')
             f2.write('<STORE BUSHES>')
+            f2.write('\n')
+        if net.demand_mult != 1:
+            f2.write('<DEMAND MULTIPLIER> ')
+            f2.write(str(net.demand_mult))
             f2.write('\n')
 
 

@@ -72,6 +72,7 @@ parser.add_argument('--mc', type=bool, help='display separate TSTTs for each cla
                     default=False)
 parser.add_argument('-w', '--mc_weights', nargs='+', type=int,
                     help='TSTT weights for each class of demand', default=1)
+parser.add_argument('--demand', type=float, help='demand multiplier', default=1)
 args = parser.parse_args()
 
 SEED = 42
@@ -257,7 +258,7 @@ def expand_sequence_f(node, a_link, level):
     solved = 0
     tstt_before = node.tstt_after
 
-    net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+    net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
     net.not_fixed = set(node.not_fixed).difference(set([a_link]))
     net.art_links = art_link_dict
 
@@ -296,7 +297,7 @@ def expand_sequence_b(node, a_link, level, mc_weights=1):
     solved = 0
     tstt_after = node.tstt_before
 
-    net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+    net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
     net.not_fixed = node.not_fixed.union(set([a_link]))
     net.art_links = art_link_dict
 
@@ -1110,7 +1111,7 @@ def search(
                     del decoy_dd[visited_links]
 
                 after_ = minimum_ff_n.tstt_after
-                test_net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+                test_net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
                 test_net.art_links = art_link_dict
                 path = minimum_ff_n.path.copy()
                 new_bb = {}
@@ -1170,7 +1171,7 @@ def search(
 
                 eligible_to_add = list(deepcopy(remaining))
                 after_ = after_eq_tstt
-                test_net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+                test_net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
                 test_net.art_links = art_link_dict
 
                 decoy_dd = deepcopy(damaged_dict)
@@ -1340,7 +1341,7 @@ def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
     fname = save_dir + '/net_after' + ext_name
     if not os.path.exists(fname + extension):
         start = time.time()
-        net_after = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+        net_after = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
         net_after.not_fixed = set(damaged_links)
         net_after.art_links = art_link_dict
         net_after.damaged_dict = damaged_dict
@@ -1396,7 +1397,7 @@ def state_before(
     fname = save_dir + '/net_before' + ext_name
     if not os.path.exists(fname + extension):
         start = time.time()
-        net_before = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+        net_before = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
         net_before.not_fixed = set([])
         net_before.art_links = art_link_dict
         net_before.damaged_dict = damaged_dict
@@ -2241,14 +2242,14 @@ def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
 def lazy_greedy_heuristic():
     """heuristic which orders links for repair based on effect on tstt if repaired first"""
     start = time.time()
-    net_b = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+    net_b = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
     net_b.not_fixed = set([])
     net_b.art_links = art_link_dict
     net_b.damaged_dict = damaged_dict
     b_eq_tstt = solve_UE(net=net_b, eval_seq=True, flows=True, warm_start=False)
 
     damaged_links = damaged_dict.keys()
-    net_a = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+    net_a = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
     net_a.not_fixed = set(damaged_links)
     net_a.art_links = art_link_dict
     a_eq_tstt = solve_UE(net=net_a, eval_seq=True, warm_start=False)
@@ -2525,6 +2526,7 @@ def make_art_links():
     art_net.not_fixed = set([])
     art_net.art_links = {}
     art_net.mc_weights = mc_weights
+    art_net.demand_mult = demand_mult
 
     tstt = solve_UE(net=art_net, eval_seq=True, flows=True, warm_start=False)
 
@@ -2770,6 +2772,7 @@ if __name__ == '__main__':
         mc_weights = args.mc_weights[0]
     else:
         mc_weights = list(args.mc_weights[:])
+    demand_mult = args.demand
 
     NETWORK = os.path.join(FOLDER, net_name)
     if net_name == 'Chicago-Sketch':
@@ -2848,7 +2851,7 @@ if __name__ == '__main__':
             elif rand_gen and damaged_dict_preset=='':
                 memory = {}
 
-                net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights)
+                net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
                 net.not_fixed = set([])
                 net.art_links = {}
                 solve_UE(net=net, warm_start=False, eval_seq=True)
@@ -3158,7 +3161,7 @@ if __name__ == '__main__':
                 damaged_dict_ = get_broken_links(JSONFILE, scenario_file)
 
                 memory = {}
-                net = create_network(NETFILE, TRIPFILE)
+                net = create_network(NETFILE, TRIPFILE, demand_mult=demand_mult)
 
                 all_links = damaged_dict_.keys()
                 damaged_links = np.random.choice(list(all_links), num_broken, replace=False)
