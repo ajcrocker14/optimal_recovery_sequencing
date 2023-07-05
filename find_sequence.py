@@ -39,7 +39,7 @@ parser.add_argument('-r', '--reps', type=int, help='number of scenarios with the
 parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
 parser.add_argument('-g', '--graphing', type=bool,
                     help='save results graphs and solution quality vs runtime graph', default=False)
-parser.add_argument('-l', '--loc', type=int, help='location based sampling', default=0)
+parser.add_argument('-l', '--loc', type=int, help='location based sampling', default=3)
 parser.add_argument('-o', '--scenario', type=str, help='scenario file', default='scenario.csv')
 parser.add_argument('-e', '--strength', type=str, help='strength of the earthquake')
 parser.add_argument('-y', '--onlybeforeafter', type=bool, help='to get before and after tstt',
@@ -2759,7 +2759,7 @@ if __name__ == '__main__':
     strength = args.strength
     full = args.full
     rand_gen = args.random
-    location_based = args.loc
+    location = args.loc
     opt = args.opt
     sa = args.sa
     damaged_dict_preset = args.damaged
@@ -2950,7 +2950,7 @@ if __name__ == '__main__':
                         lat = row['Y']
                         coord_dict[row['Node']] = (lon, lat)
 
-                if location_based:
+                if location:
                     # Pick a center node at random:
                     nodedecoy = deepcopy(list(netg.node.keys()))
                     nodedecoy = sorted(nodedecoy)
@@ -2978,8 +2978,8 @@ if __name__ == '__main__':
 
                     i = 0
                     while i <= int(math.floor(num_broken*2/3.0)) and len(distances)>0:
-                        another_node = random.choices(decoy, 1.0/np.array(distances)**3, k=1)[0]
-                        idx = decoy.index(another_node)
+                        another_node = random.choices(decoy, 1.0/np.array(distances)**location, k=1)[0]
+                        idx = decoy.index(another_node) # default location is 3
                         del distances[idx]
                         del decoy[idx]
                         selected_nodes.append(another_node)
