@@ -63,7 +63,9 @@ parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of wo
 """ when multiple values are given for num_crews, order is found based
 on first number, and postprocessing is performed to find OBJ for other
 crew numbers """
-parser.add_argument('--opt', type=bool, help='solve to optimality by brute force', default=False)
+parser.add_argument('--opt', type=int,
+                    help='enter 1 to solve by brute force (opt), 2 to solve using ML values',
+                    default=0)
 parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs',
                     default=False)
 parser.add_argument('--damaged', type=str, help='set damaged_dict to previously stored values',
@@ -1513,7 +1515,6 @@ def eval_state(state, after, damaged_links, eval_seq=False):
 def simple_preprocess(damaged_links, net_after):
     """uses sampling as described in Rey et al. 2019 to find approximated
     average first-order effects"""
-    samples = []
     X_train = []
     y_train = []
     Z_train = [0]*len(damaged_links)
@@ -1582,9 +1583,106 @@ def simple_preprocess(damaged_links, net_after):
 
     return Z_bar, preprocessing_num_tap
 
-def preprocessing(damaged_links, net_after):
+
+def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, wb, bb, swapped_links):
+    """uses sampling as described in Rey et al. 2019 to find approximated
+    average first-order effects for middle positions in the repair sequence"""
+    X_train = []
+    y_train = []
+    Z_train = [0]*len(damaged_links)
+    for i in range(len(damaged_links)):
+        Z_train[i] = []
+    alt_Z_train = deepcopy(Z_train)
+
+    print('best benefits: {}, worst benefits: {}'.format(bb,wb))
+
+    preprocessing_num_tap = 0
+    damaged_links = [i for i in damaged_links]
+
+    for k, v in memory.items():
+        pattern = np.ones(len(damaged_links))
+        state = [damaged_links.index(i) for i in k]
+        pattern[(state)] = 0
+        X_train.append(pattern)
+        y_train.append(v)
+        preprocessing_num_tap += 1
+
+    ns = 1
+    card_P = len(damaged_links)
+    denom = 2**card_P
+
+    # presolve for benefit of repairing each link first and last
+    alt_Z_bar = np.zeros((3,card_P))
+    for i in range(card_P):
+        if damaged_links[i] in swapped_links:
+            alt_Z_bar[0,i] = wb[damaged_links[i]]
+            alt_Z_bar[2,i] = bb[damaged_links[i]]
+        else:
+            alt_Z_bar[0,i] = bb[damaged_links[i]]
+            alt_Z_bar[2,i] = wb[damaged_links[i]]
+
+    # A value of 1 means the link has already been repaired in that state
+    mid = True
+    for i in range(card_P):
+        nom = ns * comb(card_P, i)
+        num_to_sample = math.ceil(nom / denom)
+
+        for j in range(num_to_sample):
+            mid = True
+            pattern = np.zeros(card_P)
+            temp_state = random.sample(damaged_links, i)
+            state = [damaged_links.index(i) for i in temp_state]
+            pattern[(state)] = 1
+
+            if any((pattern is test) or (pattern == test).all() for test in X_train):
+                pass
+            else:
+                TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                preprocessing_num_tap += tap
+                X_train.append(pattern)
+                y_train.append(TSTT)
+
+                for el in range(len(pattern)):
+                    new_pattern = np.zeros(card_P)
+                    new_state = deepcopy(temp_state)
+                    if pattern[el] == 1:
+                        new_state.remove(damaged_links[el])
+                        if sum(pattern) == 1 or sum(pattern) == card_P:
+                            mid = False
+                    else:
+                        new_state.append(damaged_links[el])
+                        if sum(pattern) == 0 or sum(pattern) == card_P - 1:
+                            mid = False
+                    state = [damaged_links.index(i) for i in new_state]
+                    new_pattern[(state)] = 1
+
+                    if any((new_pattern is test) or (new_pattern == test).all() for test in
+                            X_train):
+                        pass
+                    else:
+                        new_TSTT, tap = eval_state(new_state, net_after, damaged_links,
+                            eval_seq=True)
+                        preprocessing_num_tap += tap
+                        X_train.append(new_pattern)
+                        y_train.append(new_TSTT)
+                        Z_train[el].append(abs(new_TSTT - TSTT))
+                        if mid:
+                            alt_Z_train[el].append(abs(new_TSTT - TSTT))
+
+    Z_bar = np.zeros(card_P)
+    for i in range(card_P):
+        Z_bar[i] = np.mean(Z_train[i])
+    print('Z_bar values are: ',Z_bar)
+
+    for i in range(card_P):
+        alt_Z_bar[1,i] = np.mean(alt_Z_train[i])
+    print('alt Z_bar values are: ',alt_Z_bar)
+
+    return Z_bar, alt_Z_bar, preprocessing_num_tap
+
+
+def ML_preprocess(damaged_links, net_after):
     """trains a TensorFlow model to predict tstt from the binary repair state"""
-    samples = []
     X_train = []
     y_train = []
     Z_train = [0]*len(damaged_links)
@@ -1972,8 +2070,50 @@ def LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar):
     return bound, path, elapsed, tap_solved
 
 
-def altLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb,
-            bb, bb_time, swapped_links):
+def altLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar):
+    """approx solution method based on estimating Largest Average Smith Ratio
+    using the alternate preprocessing function"""
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/LASR_bound'
+    if not os.path.exists(fname + extension):
+        LASR_net = deepcopy(net_before)
+
+        order = np.zeros((3,len(damaged_links)))
+        for i in range(len(damaged_links)):
+            order[:,i] = alt_Z_bar[:,i]/list(damaged_dict.values())[i]
+
+        tops = np.argmax(order, axis=1)
+        bottoms = np.argmin(order, axis=1)
+
+        mod_order = order[1]
+        mod_order[bottoms[2]] = order[1,bottoms[1]]/2
+        mod_order[tops[0]] = order[1,tops[1]]*2
+
+        c = list(zip(mod_order, damaged_links))
+        sorted_c = sorted(c,reverse=True)
+        __, path = zip(*sorted_c)
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, __ = eval_sequence(
+            LASR_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
+
+def oldaltLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb,
+    bb, bb_time, swapped_links):
     """approx solution method based on estimating Largest Average Smith Ratio
     using the preprocessing function, then supplementing with greedy choices
     for the first k slots"""
@@ -2220,9 +2360,6 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_c
         min_seq = load(fname + '_path')
         tap_solved = load(fname + '_num_tap')
         elapsed = load(fname + '_elapsed')
-
-    if not is_approx:
-        print('Brute force solution: ', min_seq)
 
     return min_cost, min_seq, elapsed, tap_solved
 
@@ -3284,13 +3421,19 @@ if __name__ == '__main__':
                 if approx:
                     memory1 = deepcopy(memory)
 
-                    preprocess_st = time.time()
+                    #preprocess_st = time.time()
                     # model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(
                     #     damaged_links, net_after)
                     # approx_params = (model, meany, stdy)
-                    Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
+                    #Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
+                    #preprocess_elapsed = time.time() - preprocess_st
+                    #time_before = preprocess_elapsed + time_net_before
+
+                    preprocess_st = time.time()
+                    Z_bar, alt_Z_bar, preprocessing_num_tap = alt_preprocess(damaged_links, net_after,
+                        after_eq_tstt, before_eq_tstt, wb, bb, swapped_links)
                     preprocess_elapsed = time.time() - preprocess_st
-                    time_before = preprocess_elapsed + time_net_before
+                    time_before = preprocess_elapsed + time_net_before + 2*bb_time
 
                     # Largest Average First Order
                     LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
@@ -3335,26 +3478,25 @@ if __name__ == '__main__':
 
 
                     # Modified LASR
-                    #altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
-                    #    net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb, bb,
-                    #    bb_time, swapped_links)
-                    #altLASR_num_tap += preprocessing_num_tap
-                    #if alt_crews == None and not multiclass:
-                    #    print('altLASR_obj: ', altLASR_obj)
-                    #elif multiclass and isinstance(net_after.tripfile, list):
-                    #    test_net = deepcopy(net_after)
-                    #    altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
-                    #        after_eq_tstt, before_eq_tstt, num_crews=num_crews,
-                    #        multiclass=multiclass)
-                    #    print('altLASR_obj: ', altLASR_obj_mc)
-                    #else:
-                    #    altLASR_obj_mult = [0]*(len(alt_crews)+1)
-                    #    altLASR_obj_mult[0] = LAFO_obj
-                    #    for num in range(len(alt_crews)):
-                    #        test_net = deepcopy(net_before)
-                    #        altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
-                    #            after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
-                    #    print('altLASR_obj: ', altLASR_obj_mult)
+                    altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
+                        net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
+                    altLASR_num_tap += preprocessing_num_tap
+                    if alt_crews == None and not multiclass:
+                        print('altLASR_obj: ', altLASR_obj)
+                    elif multiclass and isinstance(net_after.tripfile, list):
+                        test_net = deepcopy(net_after)
+                        altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
+                            after_eq_tstt, before_eq_tstt, num_crews=num_crews,
+                            multiclass=multiclass)
+                        print('altLASR_obj: ', altLASR_obj_mc)
+                    else:
+                        altLASR_obj_mult = [0]*(len(alt_crews)+1)
+                        altLASR_obj_mult[0] = LAFO_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_before)
+                            altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
+                                after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                        print('altLASR_obj: ', altLASR_obj_mult)
 
 
                     # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
@@ -3497,12 +3639,27 @@ if __name__ == '__main__':
 
                 # Get optimal solution via brute force
                 if opt:
+                    if opt==1:
+                        is_approx = False
+                    if opt==2:
+                        is_approx = True
+                        ML_start = time.time()
+                        model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
+                            damaged_links, net_after)
+                        approx_params = (model, meany, stdy)
+                        ML_time = time.time() - ML_start
                     opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
-                        net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
-                    opt_elapsed += greedy_elapsed
-                    opt_num_tap += greedy_num_tap + len(damaged_links) - 2
-                    print('Optimal objective with {} crew(s): {}, optimal path: {}'.format(
-                          num_crews, opt_obj, opt_soln))
+                        net_after, after_eq_tstt, before_eq_tstt, is_approx=is_approx, num_crews=num_crews)
+                    if opt==1:
+                        opt_elapsed += greedy_elapsed
+                        opt_num_tap += greedy_num_tap + len(damaged_links) - 2
+                        print('Optimal objective with {} crew(s): {}, optimal path: {}'.format(
+                              num_crews, opt_obj, opt_soln))
+                    if opt==2:
+                        opt_elapsed += ML_time
+                        opt_num_tap += ML_num_tap
+                        print('ML brute force objective with {} crew(s): {}, path: {}'.format(
+                              num_crews, opt_obj, opt_soln))
                     if multiclass and isinstance(net_after.tripfile, list):
                         test_net = deepcopy(net_after)
                         opt_obj_mc, __, __ = eval_sequence(test_net, opt_soln, after_eq_tstt,
@@ -3522,11 +3679,17 @@ if __name__ == '__main__':
                             memory = deepcopy(memory1)
                             (opt_obj_mult[num+1], opt_soln_mult[num+1], opt_elapsed_mult[num+1],
                                 opt_num_tap_mult[num+1]) = brute_force(net_after, after_eq_tstt,
-                                before_eq_tstt, num_crews=alt_crews[num])
-                            opt_elapsed_mult[num+1] += greedy_elapsed
-                            opt_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 2
-                            print('Optimal objective with {} crew(s): {}, optimal path: {}'.format(
-                                  alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
+                                before_eq_tstt, is_approx=is_approx, num_crews=alt_crews[num])
+                            if opt==1:
+                                opt_elapsed_mult[num+1] += greedy_elapsed
+                                opt_num_tap_mult[num+1] += greedy_num_tap + len(damaged_links) - 2
+                                print('Optimal objective with {} crew(s): {}, optimal path: {}'.format(
+                                      alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
+                            if opt==2:
+                                opt_elapsed_mult[num+1] += ML_elapsed
+                                opt_num_tap_mult[num+1] += ML_num_tap
+                                print('ML brute force objective with {} crew(s): {}, path: {}'.format(
+                                      alt_crews[num], opt_obj_mult[num+1], opt_soln_mult[num+1]))
                             if multiclass and isinstance(net_after.tripfile, list):
                                 test_net = deepcopy(net_after)
                                 temp, __, __ = eval_sequence(test_net, opt_soln_mult[num+1],
@@ -3772,12 +3935,14 @@ if __name__ == '__main__':
                         t.title = (net_name + ' with ' + str(num_broken)
                             + ' broken bridges (equal priority)')
                     t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
-                    if opt:
+                    if opt==1:
                         t.add_row(['OPTIMAL', opt_obj_mc, opt_elapsed, opt_num_tap])
+                    if opt==2:
+                        t.add_row(['ML BF', opt_obj_mc, opt_elapsed, opt_num_tap])
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
-                        #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
+                        t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mc, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3803,12 +3968,14 @@ if __name__ == '__main__':
                     t = PrettyTable()
                     t.title = net_name + ' with ' + str(num_broken) + ' broken bridges'
                     t.field_names = ['Method', 'Objective', 'Run Time', '# TAP']
-                    if opt:
+                    if opt==1:
                         t.add_row(['OPTIMAL', opt_obj, opt_elapsed, opt_num_tap])
+                    if opt==2:
+                        t.add_row(['ML BF', opt_obj, opt_elapsed, opt_num_tap])
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
-                        #t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
+                        t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3854,15 +4021,23 @@ if __name__ == '__main__':
                     if opt:
                         for num in range(len(alt_crews)+1):
                             if num == 0:
-                                t.add_row(['OPTIMAL '+str(num_crews), opt_obj_mult[num],
-                                    opt_elapsed_mult[num], opt_num_tap])
+                                if opt==1:
+                                    t.add_row(['OPTIMAL '+str(num_crews), opt_obj_mult[num],
+                                        opt_elapsed_mult[num], opt_num_tap])
+                                if opt==2:
+                                    t.add_row(['ML BF '+str(num_crews), opt_obj_mult[num],
+                                        opt_elapsed_mult[num], opt_num_tap])
                             else:
-                                t.add_row(['OPTIMAL '+str(alt_crews[num-1]), opt_obj_mult[num],
-                                    opt_elapsed_mult[num], opt_num_tap])
+                                if opt==1:
+                                    t.add_row(['OPTIMAL '+str(alt_crews[num-1]), opt_obj_mult[num],
+                                        opt_elapsed_mult[num], opt_num_tap])
+                                if opt==2:
+                                    t.add_row(['ML BF '+str(alt_crews[num-1]), opt_obj_mult[num],
+                                        opt_elapsed_mult[num], opt_num_tap])
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
-                        #t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
+                        t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3900,10 +4075,13 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('approx-LASR: ', LASR_soln)
                     print('---------------------------')
-                    #print('alt-LASR: ', altLASR_soln)
-                    #print('---------------------------')
-                if opt:
+                    print('alt-LASR: ', altLASR_soln)
+                    print('---------------------------')
+                if opt==1:
                     print('optimal by brute force: ', opt_soln)
+                    print('---------------------------')
+                if opt==2:
+                    print('ML brute force: ', opt_soln)
                     print('---------------------------')
                 if full:
                     print('full algorithm: ', algo_path)
@@ -3936,12 +4114,14 @@ if __name__ == '__main__':
                     damaged_seqs[link] = list()
                 temp_dict = {}
                 temp_dict['header'] = list()
-                if opt:
+                if opt==1:
                     temp_dict['header'].append('OPT')
+                if opt==2:
+                    temp_dict['header'].append('ML BF')
                 if approx:
                     temp_dict['header'].append('LAFO')
                     temp_dict['header'].append('LASR')
-                    #temp_dict['header'].append('altLASR')
+                    temp_dict['header'].append('altLASR')
                 if full:
                     temp_dict['header'].append('algo')
                 if beam_search:
@@ -3967,8 +4147,8 @@ if __name__ == '__main__':
                         damaged_seqs[link].append(el+1)
                         el = LASR_soln.index(link)
                         damaged_seqs[link].append(el+1)
-                        #el = altLASR_soln.index(link)
-                        #damaged_seqs[link].append(el+1)
+                        el = altLASR_soln.index(link)
+                        damaged_seqs[link].append(el+1)
                     if full:
                         el = algo_path.index(link)
                         damaged_seqs[link].append(el+1)
@@ -4028,9 +4208,11 @@ if __name__ == '__main__':
             if approx:
                 LAFO_soln_ineq = load(damaged_dict_preset + '/' + 'LAFO_bound_path')
                 LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
-                #altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
-            if opt:
+                altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
+            if opt==1:
                 opt_soln_ineq = load(damaged_dict_preset + '/' + 'min_seq_path')
+            if opt==2:
+                opt_soln_ineq = load(damaged_dict_preset + '/' + 'min_seq_approx_path')
             if full:
                 algo_path_ineq = load(damaged_dict_preset + '/' + 'algo_solution_path')
             if beam_search:
@@ -4054,8 +4236,8 @@ if __name__ == '__main__':
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
                 LASR_obj_ineq, __, __ = eval_sequence(net_after, LASR_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
-                #altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
-                #    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
+                    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
             if opt:
                 opt_obj_ineq, __, __ = eval_sequence(net_after, opt_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
@@ -4090,16 +4272,19 @@ if __name__ == '__main__':
                 + ' broken bridges (equal vs unequal priorities)')
             t.field_names = ['Method', 'Equal Class Priority OBJ', 'Unequal Class Priority OBJ',
                 '% overall change, % change by class']
-            if opt:
+            if opt==1:
                 t.add_row(['OPTIMAL', opt_obj_mc, opt_obj_ineq, percentChange(opt_obj_mc,
+                    opt_obj_ineq)])
+            if opt==2:
+                t.add_row(['ML BF', opt_obj_mc, opt_obj_ineq, percentChange(opt_obj_mc,
                     opt_obj_ineq)])
             if approx:
                 t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_obj_ineq, percentChange(LAFO_obj_mc,
                     LAFO_obj_ineq)])
                 t.add_row(['approx-LASR', LASR_obj_mc, LASR_obj_ineq], percentChange(LASR_obj_mc,
                     LASR_obj_ineq))
-                #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
-                #    altLASR_obj_ineq))
+                t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
+                    altLASR_obj_ineq))
             if full:
                 t.add_row(['FULL ALGO', algo_obj_mc, algo_obj_ineq, percentChange(algo_obj_mc,
                     algo_obj_ineq)])
