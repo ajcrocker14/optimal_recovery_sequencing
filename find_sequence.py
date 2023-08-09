@@ -1,31 +1,29 @@
-from sequence_utils import *
+from graphing import *
+from network import *
+from correspondence import *
+
+import os.path
+from ctypes import *
+
 import random
 import operator as op
 from functools import reduce
 import itertools
+from scipy.special import comb
+
+import csv
 from prettytable import PrettyTable
 from prettytable import MSWORD_FRIENDLY
-import multiprocessing as mp
-from graphing import *
-import matplotlib.pyplot as plt
 from matplotlib import collections as mc
 from matplotlib import patches as mpatch
-from scipy.special import comb
+
 import math
 import argparse
-import numpy as np
 import cProfile
 import pstats
 import networkx as nx
-# import caffeine
-import os.path
-from ctypes import *
-import time
-from scipy import stats
-from correspondence import *
 import progressbar
-import csv
-from network import *
+# import caffeine
 
 extension = '.pickle'
 
@@ -64,8 +62,11 @@ parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of wo
 on first number, and postprocessing is performed to find OBJ for other
 crew numbers """
 parser.add_argument('--opt', type=int,
-                    help='enter 1 to solve by brute force (opt), 2 to solve using ML values',
-                    default=0)
+                    help='1: brute force (opt), 2: brute force using ML values', default=0)
+parser.add_argument('--mip', type=int,
+                    help=('1: opt w/ precalced TSTTs, 2: ML TSTT values, 3: estimated ' +
+                    'deltaTSTT[t,b] values, 4: deltaTSTT[t,b] values'),
+                    default=0) # uses Girobi solver, need license to use
 parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs',
                     default=False)
 parser.add_argument('--damaged', type=str, help='set damaged_dict to previously stored values',
@@ -91,7 +92,7 @@ class BestSoln():
         self.cost = None
         self.path = None
 
-class Node():
+class sNode():
     """A node class for bi-directional search for pathfinding"""
 
     def __init__(self, visited=None, link_id=None, parent=None, tstt_after=None, tstt_before=None,
@@ -176,6 +177,7 @@ def eval_working_sequence(
     days_list = []
     tstt_list = []
     global memory
+    global ML_mem
 
     to_visit = order_list
     added = []
@@ -190,14 +192,18 @@ def eval_working_sequence(
         net.not_fixed = set(not_fixed)
 
         if is_approx:
-            damaged_links = list(net.damaged_dict.keys())
-            state = list(set(damaged_links).difference(net.not_fixed))
-            state = [damaged_links.index(i) for i in state]
-            pattern = np.zeros(len(damaged_links))
-            pattern[(state)] = 1
-            tstt_after = approx_params[0].predict(pattern.reshape(1, -1),
-                verbose=0) * approx_params[2] + approx_params[1]
-            tstt_after = tstt_after[0][0]
+            if frozenset(net.not_fixed) in ML_mem.keys():
+                tstt_after = ML_mem[frozenset(net.not_fixed)]
+            else:
+                damaged_links = list(net.damaged_dict.keys())
+                state = list(set(damaged_links).difference(net.not_fixed))
+                state = [damaged_links.index(i) for i in state]
+                pattern = np.zeros(len(damaged_links))
+                pattern[(state)] = 1
+                tstt_after = approx_params[0].predict(pattern.reshape(1, -1),
+                    verbose=0) * approx_params[2] + approx_params[1]
+                tstt_after = tstt_after[0][0]
+                ML_mem[frozenset(net.not_fixed)] = tstt_after
         else:
             if frozenset(net.not_fixed) in memory.keys():
                 tstt_after = memory[frozenset(net.not_fixed)]
@@ -287,14 +293,14 @@ def expand_sequence_f(node, a_link, level):
     if bb[a_link] < diff:
         bb[a_link] = diff
 
-    node = Node(link_id=a_link, parent=node, tstt_after=tstt_after, tstt_before=tstt_before,
+    node = sNode(link_id=a_link, parent=node, tstt_after=tstt_after, tstt_before=tstt_before,
                 level=level, relax=node.relax)
     del net
 
     return node, solved
 
 
-def expand_sequence_b(node, a_link, level, mc_weights=1):
+def expand_sequence_b(node, a_link, level):
     """given a link and a node, expands the sequence"""
     solved = 0
     tstt_after = node.tstt_before
@@ -326,7 +332,7 @@ def expand_sequence_b(node, a_link, level, mc_weights=1):
     if bb[a_link] < diff:
         bb[a_link] = diff
 
-    node = Node(link_id=a_link, parent=node, tstt_after=tstt_after, tstt_before=tstt_before,
+    node = sNode(link_id=a_link, parent=node, tstt_after=tstt_after, tstt_before=tstt_before,
                 level=level, relax=node.relax)
     del net
 
@@ -1269,18 +1275,18 @@ def search(
             num_purged)
 
 
-def worst_benefit(
+def last_benefit(
         before, links_to_remove, before_eq_tstt, relax=False, bsearch=False, ext_name=''):
-    """builds worst benefits dict by finding benefit of repairing each link last"""
+    """builds last benefits dict by finding benefit of repairing each link last"""
     if relax:
         ext_name = '_relax'
     elif bsearch:
         ext_name = ext_name
-    fname = before.save_dir + '/worst_benefit_dict' + ext_name
+    fname = before.save_dir + '/last_benefit_dict' + ext_name
 
     # For each bridge, find the effect on TSTT when that bridge is removed while keeping others
     if not os.path.exists(fname + extension):
-        wb = {}
+        last_b = {}
         not_fixed = []
         for link in links_to_remove:
             test_net = deepcopy(before)
@@ -1290,26 +1296,26 @@ def worst_benefit(
             tstt = solve_UE(net=test_net, eval_seq=True)
             global memory
             memory[frozenset(test_net.not_fixed)] = tstt
-            wb[link] = tstt - before_eq_tstt
-        save(fname, wb)
+            last_b[link] = tstt - before_eq_tstt
+        save(fname, last_b)
     else:
-        wb = load(fname)
+        last_b = load(fname)
 
-    return wb
+    return last_b
 
 
-def best_benefit(after, links_to_remove, after_eq_tstt, relax=False, bsearch=False, ext_name=''):
-    """builds best benefits dict by finding benefit of repairing each link first"""
+def first_benefit(after, links_to_remove, after_eq_tstt, relax=False, bsearch=False, ext_name=''):
+    """builds first benefits dict by finding benefit of repairing each link first"""
     if relax:
         ext_name = '_relax'
     elif bsearch:
         ext_name = ext_name
-    fname = after.save_dir + '/best_benefit_dict' + ext_name
+    fname = after.save_dir + '/first_benefit_dict' + ext_name
 
     # For each bridge, find the effect on TSTT when that bridge is repaired first
     if not os.path.exists(fname + extension):
         start = time.time()
-        bb = {}
+        first_b = {}
         to_visit = links_to_remove
         added = []
         for link in links_to_remove:
@@ -1321,13 +1327,13 @@ def best_benefit(after, links_to_remove, after_eq_tstt, relax=False, bsearch=Fal
             tstt_after = solve_UE(net=test_net, eval_seq=True)
             global memory
             memory[frozenset(test_net.not_fixed)] = tstt_after
-            bb[link] = after_eq_tstt - tstt_after
+            first_b[link] = after_eq_tstt - tstt_after
         elapsed = time.time() - start
-        save(fname, bb)
+        save(fname, first_b)
     else:
-        bb = load(fname)
+        first_b = load(fname)
 
-    return bb, elapsed
+    return first_b, elapsed
 
 
 def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False, ext_name=''):
@@ -1336,7 +1342,6 @@ def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
         ext_name = '_relax'
     elif real:
         ext_name = '_real'
-
     elif bsearch:
         ext_name = ext_name
 
@@ -1441,34 +1446,24 @@ def state_before(
     return net_before, before_eq_tstt
 
 
-def safety(wb, bb):
+def safety(last_b, first_b):
     swapped_links = {}
-    for a_link in wb:
-        if bb[a_link] < wb[a_link]:
-            worst = bb[a_link]
-            bb[a_link] = wb[a_link]
-            wb[a_link] = worst
-            swapped_links[a_link] = bb[a_link] - wb[a_link]
+    bb = {}
+    wb = {}
+    for a_link in first_b:
+        if first_b[a_link] < last_b[a_link]:
+            bb[a_link] = last_b[a_link]
+            wb[a_link] = first_b[a_link]
+            swapped_links[a_link] = first_b[a_link] - last_b[a_link]
+        else:
+            wb[a_link] = last_b[a_link]
+            bb[a_link] = first_b[a_link]
     return wb, bb, swapped_links
 
-def get_wb(damaged_links, save_dir, relax=False, bsearch=False, ext_name=''):
-    """get worst and best benefits of repairing links, and initiate start and end nodes"""
-    net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
-        real=True, relax=relax, bsearch=bsearch, ext_name=ext_name)
-    net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir, real=True,
-        relax=relax,  bsearch=bsearch, ext_name=ext_name)
 
-    save(save_dir + '/damaged_dict', damaged_dict)
-    net_before.save_dir = save_dir
-    net_after.save_dir = save_dir
-
-    wb = worst_benefit(net_before, damaged_links, before_eq_tstt, relax=relax, bsearch=bsearch,
-        ext_name=ext_name)
-    bb, bb_time = best_benefit(net_after, damaged_links, after_eq_tstt, relax=relax,
-        bsearch=bsearch, ext_name=ext_name)
-    wb, bb, swapped_links = safety(wb, bb)
-
-    start_node = Node(tstt_after=after_eq_tstt)
+def get_se_nodes(damaged_links, after_eq_tstt, before_eq_tstt, relax=False):
+    """initiate start and end nodes for beam search"""
+    start_node = sNode(tstt_after=after_eq_tstt)
     start_node.before_eq_tstt = before_eq_tstt
     start_node.after_eq_tstt = after_eq_tstt
     start_node.realized = 0
@@ -1477,7 +1472,7 @@ def get_wb(damaged_links, save_dir, relax=False, bsearch=False, ext_name=''):
     start_node.visited, start_node.not_visited = set([]), set(damaged_links)
     start_node.fixed, start_node.not_fixed = set([]), set(damaged_links)
 
-    end_node = Node(tstt_before=before_eq_tstt, forward=False)
+    end_node = sNode(tstt_before=before_eq_tstt, forward=False)
     end_node.before_eq_tstt = before_eq_tstt
     end_node.after_eq_tstt = after_eq_tstt
     end_node.level = 0
@@ -1487,8 +1482,49 @@ def get_wb(damaged_links, save_dir, relax=False, bsearch=False, ext_name=''):
     start_node.relax = relax
     end_node.relax = relax
 
-    return (wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt, before_eq_tstt,
-            time_net_before, time_net_after, bb_time, swapped_links)
+    return start_node, end_node
+
+
+def get_wb(damaged_links, save_dir, relax=False, bsearch=False, ext_name=''):
+    """get worst and best benefits of repairing links, and initiate start and end nodes"""
+    net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
+        real=True, relax=relax, bsearch=bsearch, ext_name=ext_name)
+    net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir, real=True,
+        relax=relax,  bsearch=bsearch, ext_name=ext_name)
+    upper_bound = (after_eq_tstt - before_eq_tstt) * sum(net_before.damaged_dict.values())
+
+    save(save_dir + '/damaged_dict', damaged_dict)
+    save(save_dir + '/upper_bound', upper_bound)
+    net_before.save_dir = save_dir
+    net_after.save_dir = save_dir
+
+    last_b = last_benefit(net_before, damaged_links, before_eq_tstt, relax=relax, bsearch=bsearch,
+        ext_name=ext_name)
+    first_b, bb_time = first_benefit(net_after, damaged_links, after_eq_tstt, relax=relax,
+        bsearch=bsearch, ext_name=ext_name)
+    wb, bb, swapped_links = safety(last_b, first_b)
+
+    start_node = sNode(tstt_after=after_eq_tstt)
+    start_node.before_eq_tstt = before_eq_tstt
+    start_node.after_eq_tstt = after_eq_tstt
+    start_node.realized = 0
+    start_node.realized_u = 0
+    start_node.level = 0
+    start_node.visited, start_node.not_visited = set([]), set(damaged_links)
+    start_node.fixed, start_node.not_fixed = set([]), set(damaged_links)
+
+    end_node = sNode(tstt_before=before_eq_tstt, forward=False)
+    end_node.before_eq_tstt = before_eq_tstt
+    end_node.after_eq_tstt = after_eq_tstt
+    end_node.level = 0
+    end_node.visited, end_node.not_visited = set([]), set(damaged_links)
+    end_node.fixed, end_node.not_fixed = set(damaged_links), set([])
+
+    start_node.relax = relax
+    end_node.relax = relax
+
+    return (wb, bb, last_b, first_b, start_node, end_node, net_after, net_before, after_eq_tstt,
+            before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links, upper_bound)
 
 
 def eval_state(state, after, damaged_links, eval_seq=False):
@@ -1584,7 +1620,7 @@ def simple_preprocess(damaged_links, net_after):
     return Z_bar, preprocessing_num_tap
 
 
-def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, wb, bb, swapped_links):
+def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b, first_b):
     """uses sampling as described in Rey et al. 2019 to find approximated
     average first-order effects for middle positions in the repair sequence"""
     X_train = []
@@ -1594,7 +1630,7 @@ def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, wb, 
         Z_train[i] = []
     alt_Z_train = deepcopy(Z_train)
 
-    print('best benefits: {}, worst benefits: {}'.format(bb,wb))
+    print('first benefits: {}, last benefits: {}'.format(first_b,last_b))
 
     preprocessing_num_tap = 0
     damaged_links = [i for i in damaged_links]
@@ -1614,16 +1650,12 @@ def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, wb, 
     # presolve for benefit of repairing each link first and last
     alt_Z_bar = np.zeros((3,card_P))
     for i in range(card_P):
-        if damaged_links[i] in swapped_links:
-            alt_Z_bar[0,i] = wb[damaged_links[i]]
-            alt_Z_bar[2,i] = bb[damaged_links[i]]
-        else:
-            alt_Z_bar[0,i] = bb[damaged_links[i]]
-            alt_Z_bar[2,i] = wb[damaged_links[i]]
+        alt_Z_bar[0,i] = first_b[damaged_links[i]]
+        alt_Z_bar[2,i] = last_b[damaged_links[i]]
 
     # A value of 1 means the link has already been repaired in that state
     mid = True
-    for i in range(card_P):
+    for i in range(1,card_P):
         nom = ns * comb(card_P, i)
         num_to_sample = math.ceil(nom / denom)
 
@@ -1681,6 +1713,144 @@ def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, wb, 
     return Z_bar, alt_Z_bar, preprocessing_num_tap
 
 
+def alt2_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b, first_b):
+    """uses sampling adapted from that described in Rey et al. 2019 to find
+    approximated average first-order effects for EACH position in the repair
+    sequence"""
+    X_train = []
+    y_train = []
+    Z_train = [0]*len(damaged_links)
+    for i in range(len(damaged_links)):
+        Z_train[i] = []
+    alt_Z_train = [0]*(len(damaged_links)-2)
+    for i in range(len(damaged_links)-2):
+        alt_Z_train[i] = deepcopy(Z_train)
+    print('best benefits: {}, worst benefits: {}'.format(bb,wb))
+
+    preprocessing_num_tap = 0
+    damaged_links = [i for i in damaged_links]
+
+    ns = 1
+    card_P = len(damaged_links)
+    denom = 2**card_P
+
+    # presolve for benefit of repairing each link first and last
+    alt_Z_bar = np.zeros((card_P,card_P))
+    for i in range(card_P):
+        alt_Z_bar[0,i] = first_b[damaged_links[i]]
+        alt_Z_bar[card_P-1,i] = last_b[damaged_links[i]]
+
+    # A value of 1 means the link has already been repaired in that state
+    for k in range(1,card_P):
+        nom = ns * comb(card_P, k)
+        num_to_sample = math.ceil(nom / denom)
+
+        for j in range(num_to_sample):
+            pattern = np.zeros(card_P)
+            temp_state = random.sample(damaged_links, k)
+            state = [damaged_links.index(i) for i in temp_state]
+            pattern[(state)] = 1
+
+            count = 0
+            while any((pattern is test) or (pattern == test).all() for test in X_train):
+                pattern = np.zeros(card_P)
+                temp_state = random.sample(damaged_links, k)
+                state = [damaged_links.index(i) for i in temp_state]
+                pattern[(state)] = 1
+                count += 1
+                if count >= card_P:
+                    break
+
+            TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+            preprocessing_num_tap += tap
+            X_train.append(pattern)
+            y_train.append(TSTT)
+
+            for el in range(len(pattern)):
+                new_pattern = np.zeros(card_P)
+                new_state = deepcopy(temp_state)
+                if pattern[el] == 1: # break link at index el
+                    new_state.remove(damaged_links[el])
+                    stage = k-1
+                else: # fix link at index el
+                    new_state.append(damaged_links[el])
+                    stage = k
+                state = [damaged_links.index(i) for i in new_state]
+                new_pattern[(state)] = 1
+
+                if stage > 0 and stage < card_P - 1:
+                    if any((new_pattern is test) or (new_pattern == test).all() for test in
+                            X_train):
+                        try:
+                            new_TSTT = Y_train[X_train.index(new_pattern)]
+                            Z_train[el].append(abs(new_TSTT - TSTT))
+                            alt_Z_train[stage-1][el].append(abs(new_TSTT - TSTT))
+                        except:
+                            pass
+                    else:
+                        new_TSTT, tap = eval_state(new_state, net_after, damaged_links,
+                            eval_seq=True)
+                        preprocessing_num_tap += tap
+                        X_train.append(new_pattern)
+                        y_train.append(new_TSTT)
+                        Z_train[el].append(abs(new_TSTT - TSTT))
+                        alt_Z_train[stage-1][el].append(abs(new_TSTT - TSTT))
+
+    for k in range(1,card_P-1): # pos
+        for el in range(card_P): # link
+            while len(alt_Z_train[k-1][el]) <= 1:
+                pattern = np.zeros(card_P)
+                while True:
+                    temp_state = random.sample(damaged_links, k)
+                    if damaged_links[el] not in temp_state:
+                        break
+                state = [damaged_links.index(i) for i in temp_state]
+                pattern[(state)] = 1
+
+                if any((pattern is test) or (pattern == test).all() for test in X_train):
+                    try:
+                        TSTT = Y_train[X_train.index(pattern)]
+                    except:
+                        TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                        preprocessing_num_tap += tap
+                        X_train.append(pattern)
+                        y_train.append(TSTT)
+                else:
+                    TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                    preprocessing_num_tap += tap
+                    X_train.append(pattern)
+                    y_train.append(TSTT)
+
+                new_pattern = np.zeros(card_P)
+                new_state = deepcopy(temp_state)
+                new_state.append(damaged_links[el])
+                state = [damaged_links.index(i) for i in new_state]
+                new_pattern[(state)] = 1
+                if any((new_pattern is test) or (new_pattern == test).all() for test in X_train):
+                    try:
+                        new_TSTT = Y_train[X_train.index(new_pattern)]
+                    except:
+                        new_TSTT, tap = eval_state(new_state, net_after, damaged_links, eval_seq=True)
+                        preprocessing_num_tap += tap
+                        X_train.append(new_pattern)
+                        y_train.append(new_TSTT)
+                else:
+                    new_TSTT, tap = eval_state(new_state, net_after, damaged_links, eval_seq=True)
+                    preprocessing_num_tap += tap
+                    X_train.append(new_pattern)
+                    y_train.append(new_TSTT)
+                Z_train[el].append(abs(new_TSTT - TSTT))
+                alt_Z_train[k-1][el].append(abs(new_TSTT - TSTT))
+
+
+    for j in range(card_P-2):
+        for i in range(card_P):
+            alt_Z_bar[j+1,i] = np.mean(alt_Z_train[j][i])
+    print('alt Z_bar values are: ',alt_Z_bar)
+
+    return alt_Z_bar, preprocessing_num_tap
+
+
 def ML_preprocess(damaged_links, net_after):
     """trains a TensorFlow model to predict tstt from the binary repair state"""
     X_train = []
@@ -1699,6 +1869,7 @@ def ML_preprocess(damaged_links, net_after):
         X_train.append(pattern)
         y_train.append(v)
         preprocessing_num_tap += 1
+    print(str(preprocessing_num_tap)+' patterns initially stored')
 
     ns = 1
     card_P = len(damaged_links)
@@ -1748,6 +1919,7 @@ def ML_preprocess(damaged_links, net_after):
     for i in range(len(damaged_links)):
         Z_bar[i] = np.mean(Z_train[i])
 
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     from tensorflow import keras
 
     c = list(zip(X_train, y_train))
@@ -2076,7 +2248,7 @@ def altLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar):
     start = time.time()
     tap_solved = 0
 
-    fname = net_before.save_dir + '/LASR_bound'
+    fname = net_before.save_dir + '/altLASR_bound'
     if not os.path.exists(fname + extension):
         LASR_net = deepcopy(net_before)
 
@@ -2112,8 +2284,8 @@ def altLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar):
     return bound, path, elapsed, tap_solved
 
 
-def oldaltLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb,
-    bb, bb_time, swapped_links):
+def oldaltLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, last_b,
+    first_b, bb_time):
     """approx solution method based on estimating Largest Average Smith Ratio
     using the preprocessing function, then supplementing with greedy choices
     for the first k slots"""
@@ -2134,17 +2306,11 @@ def oldaltLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb
         print('Sorted LASR benefits and path: ', sorted_c)
 
         # Get best immediate benefit
-        lg_dict = {}
-        for link in damaged_links:
-            if link not in swapped_links:
-                lg_dict[link] = bb[link]
-            else:
-                lg_dict[link] = wb[link]
         ordered_days, orderedb_benefits = [], []
         sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
         for key, value in sorted_d:
             ordered_days.append(value)
-            orderedb_benefits.append(lg_dict[key])
+            orderedb_benefits.append(first_b[key])
         ob, od, lzg_order = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
         lzg_order = [i[0] for i in lzg_order]
         bdratio = [ob[i]/od[i] for i in range(len(ob))]
@@ -2177,6 +2343,65 @@ def oldaltLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, wb
         elapsed = load(fname + '_elapsed')
 
     return bound, path, elapsed, tap_solved
+
+
+def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar):
+    """approx solution method based on estimating change in TSTT due to repairing
+    each link in each repair position (i.e. first through last). deltaTSTT values
+    are used as OBJ function coefficients for the modified OBJ function, and the
+    mip is solving using Gurobi"""
+    import gurobipy as gp
+    from gurobipy import GRB
+    start = time.time()
+    tap_solved = 0
+
+    fname = net_before.save_dir + '/mip_delta'
+    if not os.path.exists(fname + extension):
+        mip_net = deepcopy(net_before)
+        N = len(damaged_links)
+        delta = alt_Z_bar
+
+        # create model and add vars and constraints
+        m = gp.Model('mip_delta')
+        y = m.addMVar(shape=(N,N),vtype=GRB.BINARY)
+        m.addConstrs((y[i,:].sum()==1 for i in range(N)), 'stages')
+        m.addConstrs((y[:,i].sum()==1 for i in range(N)), 'links')
+
+        obj = y[0,:] @ delta @ y[1,:].T
+        for i in range(2,N):
+            for j in range(i):
+                obj += y[j,:] @ delta @ y[i,:].T
+        m.setObjective(obj, GRB.MAXIMIZE)
+
+        # optimize and print solution
+        m.optimize()
+        if m.Status == GRB.OPTIMAL:
+            y_sol = y.getAttr('X')
+            path = []
+            for i in range(N):
+                path.append(list(damaged_links)[int(y_sol[i].nonzero()[0])])
+            print('path found using Gurobi: ' + str(path))
+
+        else:
+            print('Gurobi solver status not optimal...')
+
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, __ = eval_sequence(
+            mip_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
+
 
 
 def SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
@@ -2248,8 +2473,7 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
 
 
 def linear_combo_solution(
-        net_before, after_eq_tstt, before_eq_tstt, time_net_before, wb, bb, bb_time,
-        swapped_links):
+        net_before, after_eq_tstt, before_eq_tstt, time_net_before, last_b, first_b, bb_time):
     """simple heuristic which orders links based a linear combination of pre-
     disruption flow, repair time, and immediate benefit to repairing each link"""
     start = time.time()
@@ -2269,18 +2493,10 @@ def linear_combo_solution(
             link_flow = if_net.linkDict[link_id]['flow']
             if_dict[link_id] = link_flow / tot_flow
 
-        # Get best immediate benefit
-        lg_dict = {}
-        for link in damaged_links:
-            if link not in swapped_links:
-                lg_dict[link] = bb[link]
-            else:
-                lg_dict[link] = wb[link]
-
         # Build linear combo dictionary to be sorted
         lc_dict = {}
         for link in damaged_links:
-            lc_dict[link] = if_dict[link] + lg_dict[link] - damaged_dict[link]
+            lc_dict[link] = if_dict[link] + first_b[link] - damaged_dict[link]
 
         sorted_d = sorted(lc_dict.items(), key=lambda x: x[1])
         path, __ = zip(*sorted_d)
@@ -2376,7 +2592,35 @@ def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
 
     return benefits, days
 
-def lazy_greedy_heuristic():
+def lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, first_b, bb_time):
+    """heuristic which orders links for repair based on effect on tstt if repaired first"""
+    start = time.time()
+    ordered_days = []
+    orderedb_benefits = []
+    sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
+    for key, value in sorted_d:
+        ordered_days.append(value)
+        orderedb_benefits.append(first_b[key])
+
+    ob, od, lzg_order = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
+    lzg_order = [i[0] for i in lzg_order]
+    elapsed = time.time() - start + bb_time
+
+    test_net = deepcopy(net_after)
+    bound, eval_taps, _ = eval_sequence(
+        test_net, lzg_order, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+    tap_solved = len(damaged_dict)+1
+
+    fname = save_dir + '/lazygreedy_solution'
+    save(fname + '_obj', bound)
+    save(fname + '_path', lzg_order)
+    save(fname + '_elapsed', elapsed)
+    save(fname + '_num_tap', tap_solved)
+
+    return bound, lzg_order, elapsed, tap_solved
+
+
+def alt_lazy_greedy_heuristic():
     """heuristic which orders links for repair based on effect on tstt if repaired first"""
     start = time.time()
     net_b = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
@@ -2425,7 +2669,6 @@ def lazy_greedy_heuristic():
     save(fname + '_num_tap', tap_solved)
 
     return bound, lzg_order, elapsed, tap_solved
-
 
 def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after):
     """heuristic which orders links for repair at each step based on immediate effect on tstt"""
@@ -2898,6 +3141,7 @@ if __name__ == '__main__':
     rand_gen = args.random
     location = args.loc
     opt = args.opt
+    mip = args.mip
     sa = args.sa
     damaged_dict_preset = args.damaged
     multiclass = args.mc
@@ -3338,6 +3582,7 @@ if __name__ == '__main__':
 
             print('damaged_dict: ', damaged_dict)
             save_dir = ULT_SCENARIO_REP_DIR
+            save(save_dir + '/damaged_dict', damaged_dict)
 
 
             if before_after:
@@ -3357,11 +3602,24 @@ if __name__ == '__main__':
 
                 memory = {}
                 art_link_dict = make_art_links()
-                benefit_analysis_st = time.time()
-                (wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt,
-                    before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links
-                    ) = get_wb(damaged_links, save_dir)
-                benefit_analysis_elapsed = time.time() - benefit_analysis_st
+                #benefit_analysis_st = time.time()
+                #(wb, bb, last_b, first_b, start_node, end_node, net_after, net_before, after_eq_tstt,
+                #    before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links,
+                #    upper_bound) = get_wb(damaged_links, save_dir)
+                #benefit_analysis_elapsed = time.time() - benefit_analysis_st
+
+                net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
+                    real=True)
+                net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir,
+                    real=True)
+                net_before.save_dir = save_dir
+                net_after.save_dir = save_dir
+                first_b, bb_time = first_benefit(net_before, damaged_links, before_eq_tstt)
+                last_b = last_benefit(net_after, damaged_links, after_eq_tstt)
+                wb, bb, swapped_links = safety(last_b, first_b)
+                upper_bound = (after_eq_tstt - before_eq_tstt) * sum(net_before.damaged_dict.values())
+                save(save_dir + '/upper_bound', upper_bound)
+
                 if damaged_dict_preset=='':
                     plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True)
 
@@ -3382,13 +3640,12 @@ if __name__ == '__main__':
 
                 # Get immediate benefit
                 for link in damaged_links:
-                    if link not in swapped_links:
-                        damaged_attributes[link].append(bb[link])
-                        damaged_attributes[link].append('not swapped')
-                    else:
-                        damaged_attributes[link].append(wb[link])
+                    damaged_attributes[link].append(first_b[link])
+                    if link in swapped_links:
                         damaged_attributes[link].append('swapped')
-                    damaged_attributes[link].append(bb[link]-wb[link])
+                    else:
+                        damaged_attributes[link].append('not swapped')
+                    damaged_attributes[link].append(abs(first_b[link]-last_b[link]))
 
                 opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
                         net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
@@ -3409,31 +3666,47 @@ if __name__ == '__main__':
             else:
                 memory = {}
                 art_link_dict = make_art_links()
-                benefit_analysis_st = time.time()
-                (wb, bb, start_node, end_node, net_after, net_before, after_eq_tstt,
-                    before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links
-                    ) = get_wb(damaged_links, save_dir)
-                benefit_analysis_elapsed = time.time() - benefit_analysis_st
+                #benefit_analysis_st = time.time()
+                #(wb, bb, last_b, first_b, start_node, end_node, net_after, net_before,
+                #    after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time,
+                #    swapped_links, upper_bound) = get_wb(damaged_links, save_dir)
+                #benefit_analysis_elapsed = time.time() - benefit_analysis_st
+
+                net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
+                    real=True)
+                net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir,
+                    real=True)
+                net_before.save_dir = save_dir
+                net_after.save_dir = save_dir
+                first_b, bb_time = first_benefit(net_before, damaged_links, before_eq_tstt)
+                last_b = last_benefit(net_after, damaged_links, after_eq_tstt)
+                wb, bb, swapped_links = safety(last_b, first_b)
+                upper_bound = (after_eq_tstt - before_eq_tstt) * sum(net_before.damaged_dict.values())
+                save(save_dir + '/upper_bound', upper_bound)
+
                 if damaged_dict_preset=='':
                     plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True)
+                print('before tstt: {}, after tstt: {}, total (single crew) duration: {}'.format(
+                      before_eq_tstt, after_eq_tstt, sum(damaged_dict.values())))
+                print('Simple upper bound on obj function (total travel delay): ', upper_bound)
 
                 # Approx solution methods
                 if approx:
                     memory1 = deepcopy(memory)
 
-                    #preprocess_st = time.time()
+                    preprocess_st = time.time()
                     # model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(
                     #     damaged_links, net_after)
                     # approx_params = (model, meany, stdy)
-                    #Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
-                    #preprocess_elapsed = time.time() - preprocess_st
-                    #time_before = preprocess_elapsed + time_net_before
-
-                    preprocess_st = time.time()
-                    Z_bar, alt_Z_bar, preprocessing_num_tap = alt_preprocess(damaged_links, net_after,
-                        after_eq_tstt, before_eq_tstt, wb, bb, swapped_links)
+                    Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
                     preprocess_elapsed = time.time() - preprocess_st
-                    time_before = preprocess_elapsed + time_net_before + 2*bb_time
+                    time_before = preprocess_elapsed + time_net_before
+
+                    #preprocess_st = time.time()
+                    #Z_bar, alt_Z_bar, preprocessing_num_tap = alt_preprocess(damaged_links,
+                    #    net_after, after_eq_tstt, before_eq_tstt, last_b, first_b)
+                    #preprocess_elapsed = time.time() - preprocess_st
+                    #time_before = preprocess_elapsed + time_net_before + 2*bb_time
 
                     # Largest Average First Order
                     LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
@@ -3478,25 +3751,25 @@ if __name__ == '__main__':
 
 
                     # Modified LASR
-                    altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
-                        net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
-                    altLASR_num_tap += preprocessing_num_tap
-                    if alt_crews == None and not multiclass:
-                        print('altLASR_obj: ', altLASR_obj)
-                    elif multiclass and isinstance(net_after.tripfile, list):
-                        test_net = deepcopy(net_after)
-                        altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
-                            after_eq_tstt, before_eq_tstt, num_crews=num_crews,
-                            multiclass=multiclass)
-                        print('altLASR_obj: ', altLASR_obj_mc)
-                    else:
-                        altLASR_obj_mult = [0]*(len(alt_crews)+1)
-                        altLASR_obj_mult[0] = LAFO_obj
-                        for num in range(len(alt_crews)):
-                            test_net = deepcopy(net_before)
-                            altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
-                                after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
-                        print('altLASR_obj: ', altLASR_obj_mult)
+                    #altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
+                    #    net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
+                    #altLASR_num_tap += preprocessing_num_tap
+                    #if alt_crews == None and not multiclass:
+                    #    print('altLASR_obj: ', altLASR_obj)
+                    #elif multiclass and isinstance(net_after.tripfile, list):
+                    #    test_net = deepcopy(net_after)
+                    #    altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
+                    #        after_eq_tstt, before_eq_tstt, num_crews=num_crews,
+                    #        multiclass=multiclass)
+                    #    print('altLASR_obj: ', altLASR_obj_mc)
+                    #else:
+                    #    altLASR_obj_mult = [0]*(len(alt_crews)+1)
+                    #    altLASR_obj_mult[0] = LAFO_obj
+                    #    for num in range(len(alt_crews)):
+                    #        test_net = deepcopy(net_before)
+                    #        altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
+                    #            after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                    #    print('altLASR_obj: ', altLASR_obj_mult)
 
 
                     # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
@@ -3505,6 +3778,37 @@ if __name__ == '__main__':
                     # approx_num_tap += preprocessing_num_tap
                     # print('Approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
                     memory = deepcopy(memory1)
+
+
+                if mip==3:
+                    memory1 = deepcopy(memory)
+                    preprocess_st = time.time()
+                    alt2_Z_bar, preprocessing_num_tap = alt2_preprocess(damaged_links, net_after,
+                        after_eq_tstt, before_eq_tstt, last_b, first_b)
+                    preprocess_elapsed = time.time() - preprocess_st
+                    time_mip_before = preprocess_elapsed + time_net_before + 2*bb_time
+
+                    # MIP alternate formulation using estimated deltaTSTT[t,b] values
+                    mip3_obj, mip3_soln, mip3_elapsed, mip3_num_tap = mip_delta(
+                        net_before, after_eq_tstt, before_eq_tstt, time_mip_before, alt2_Z_bar)
+                    mip3_num_tap += preprocessing_num_tap
+                    if alt_crews == None and not multiclass:
+                        print('MIP_delta_obj: ', mip3_obj)
+                    elif multiclass and isinstance(net_after.tripfile, list):
+                        test_net = deepcopy(net_after)
+                        mip3_obj_mc, __, __ = eval_sequence(test_net, mip3_soln, after_eq_tstt,
+                            before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                        print('MIP_delta_obj: ', mip3_obj_mc)
+                    else:
+                        mip3_obj_mult = [0]*(len(alt_crews)+1)
+                        mip3_obj_mult[0] = mip3_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_before)
+                            mip3_obj_mult[num+1], __, __ = eval_sequence(test_net, mip3_soln,
+                                after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                        print('MIP_delta_obj: ', mip3_obj_mult)
+                    memory = deepcopy(memory1)
+
 
                 # Shortest processing time solution
                 SPT_obj, SPT_soln, SPT_elapsed, SPT_num_tap = SPT_solution(
@@ -3533,8 +3837,8 @@ if __name__ == '__main__':
 
 
                 # Lazy greedy solution
-                lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic()
-                    # net_after, after_eq_tstt, before_eq_tstt, time_net_before, bb_time
+                lg_obj, lg_soln, lg_elapsed, lg_num_tap = lazy_greedy_heuristic(
+                   net_after, after_eq_tstt, before_eq_tstt, first_b, bb_time)
                 if alt_crews == None and not multiclass:
                     print('lazy_greedy_obj: ', lg_obj)
                 elif multiclass and isinstance(net_after.tripfile, list):
@@ -3643,11 +3947,13 @@ if __name__ == '__main__':
                         is_approx = False
                     if opt==2:
                         is_approx = True
+                        ML_mem = {}
                         ML_start = time.time()
                         model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
                             damaged_links, net_after)
                         approx_params = (model, meany, stdy)
                         ML_time = time.time() - ML_start
+                        print('Time to train ML model: '+str(ML_time))
                     opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
                         net_after, after_eq_tstt, before_eq_tstt, is_approx=is_approx, num_crews=num_crews)
                     if opt==1:
@@ -3699,6 +4005,8 @@ if __name__ == '__main__':
                                 opt_obj_mc[num+1].insert(0, opt_obj_mult[num+1])
                                 print('Optimal objective and demand class breakdown with {} \
                                       crew(s): {}'.format(num_crews, opt_obj_mc[num+1]))
+                    if opt==2:
+                        del ML_mem
 
                 best_benefit_taps = num_broken
                 worst_benefit_taps = num_broken
@@ -3814,16 +4122,17 @@ if __name__ == '__main__':
                             wb_update = wb_orig
                             bb_update = bb_orig
 
-                            if greedy_obj <= importance_obj:
-                                bfs.cost = greedy_obj
-                                bfs.path = greedy_soln
-                            else:
-                                bfs.cost = importance_obj
-                                bfs.path = importance_soln
                             if run == 'sa_seed':
                                 if sa_obj < bfs.cost:
                                     bfs.cost = sa_obj
                                     bfs.path = sa_soln
+                            else:
+                                if greedy_obj <= importance_obj:
+                                    bfs.cost = greedy_obj
+                                    bfs.path = greedy_soln
+                                else:
+                                    bfs.cost = importance_obj
+                                    bfs.path = importance_soln
 
                             if run == 'sa_seed':
                                 sa_r_algo_num_tap = sa_num_tap
@@ -3831,10 +4140,9 @@ if __name__ == '__main__':
                                 r_algo_num_tap = (worst_benefit_taps - 1 + greedy_num_tap
                                                   + 2*(num_broken-1))
 
-                            start_node.relax = True
-                            end_node.relax = True
-
                             search_start = time.time()
+                            start_node, end_node = get_se_nodes(damaged_links, after_eq_tstt,
+                                before_eq_tstt, relax=True)
                             (r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr,
                                 uncommon_numberr, common_numberr, num_purger) = search(
                                 start_node, end_node, bfs, beam_search=beam_search, beam_k=k,
@@ -3845,10 +4153,10 @@ if __name__ == '__main__':
                                 bs_time_list.append(search_elapsed)
                                 bs_OBJ_list.append(r_algo_obj)
 
-                            net_after, after_eq_tstt = state_after(damaged_links, save_dir,
-                                real=True)
-                            net_before, before_eq_tstt = state_before(damaged_links, save_dir,
-                                real=True)
+                            #net_after, after_eq_tstt = state_after(damaged_links, save_dir,
+                            #    real=True)
+                            #net_before, before_eq_tstt = state_before(damaged_links, save_dir,
+                            #    real=True)
 
                             first_net = deepcopy(net_after)
                             first_net.relax = False
@@ -3890,7 +4198,8 @@ if __name__ == '__main__':
 
                             else:
                                 r_algo_num_tap += r_search_tap_solved
-                                r_algo_elapsed = search_elapsed + greedy_elapsed + importance_elapsed + 2*evaluation_time
+                                r_algo_elapsed = (search_elapsed + greedy_elapsed +
+                                                  importance_elapsed + 2*evaluation_time)
                                 save(fname + '_obj', r_algo_obj)
                                 save(fname + '_path', r_algo_path)
                                 save(fname + '_num_tap', r_algo_num_tap)
@@ -3942,7 +4251,9 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
-                        t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
+                        #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
+                    if mip==3:
+                        t.add_row(['MIP_delta', mip3_obj_mc, mip3_elapsed, mip3_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mc, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -3975,7 +4286,9 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
-                        t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
+                        #t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
+                    if mip==3:
+                        t.add_row(['MIP_delta', mip3_obj, mip3_elapsed, mip3_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -4037,7 +4350,9 @@ if __name__ == '__main__':
                     if approx:
                         t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
                         t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
-                        t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
+                        #t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
+                    if mip==3:
+                        t.add_row(['MIP_delta', mip3_obj_mult, mip3_elapsed, mip3_num_tap])
                     if full:
                         t.add_row(['FULL ALGO', algo_obj_mult, algo_elapsed, algo_num_tap])
                     if beam_search:
@@ -4075,7 +4390,10 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('approx-LASR: ', LASR_soln)
                     print('---------------------------')
-                    print('alt-LASR: ', altLASR_soln)
+                    #print('alt-LASR: ', altLASR_soln)
+                    #print('---------------------------')
+                if mip==3:
+                    print('MIP_delta: ', mip3_soln)
                     print('---------------------------')
                 if opt==1:
                     print('optimal by brute force: ', opt_soln)
@@ -4121,7 +4439,9 @@ if __name__ == '__main__':
                 if approx:
                     temp_dict['header'].append('LAFO')
                     temp_dict['header'].append('LASR')
-                    temp_dict['header'].append('altLASR')
+                    #temp_dict['header'].append('altLASR')
+                if mip==3:
+                    temp_dict['header'].append('MIP_delta')
                 if full:
                     temp_dict['header'].append('algo')
                 if beam_search:
@@ -4147,7 +4467,10 @@ if __name__ == '__main__':
                         damaged_seqs[link].append(el+1)
                         el = LASR_soln.index(link)
                         damaged_seqs[link].append(el+1)
-                        el = altLASR_soln.index(link)
+                        #el = altLASR_soln.index(link)
+                        #damaged_seqs[link].append(el+1)
+                    if mip==3:
+                        el = mip3_soln.index(link)
                         damaged_seqs[link].append(el+1)
                     if full:
                         el = algo_path.index(link)
@@ -4184,12 +4507,11 @@ if __name__ == '__main__':
 
                 # Get immediate benefit
                 for link in damaged_links:
-                    if link not in swapped_links:
-                        damaged_seqs[link].append(bb[link])
-                        damaged_seqs[link].append('not swapped')
-                    else:
-                        damaged_seqs[link].append(wb[link])
+                    damaged_seqs[link].append(first_b[link])
+                    if link in swapped_links:
                         damaged_seqs[link].append('swapped')
+                    else:
+                        damaged_seqs[link].append('not swapped')
 
                 print('Repair priorities ', damaged_seqs)
                 print('Swapped links', swapped_links)
@@ -4208,7 +4530,9 @@ if __name__ == '__main__':
             if approx:
                 LAFO_soln_ineq = load(damaged_dict_preset + '/' + 'LAFO_bound_path')
                 LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
-                altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
+                #altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
+            if mip==3:
+                mip3_soln_ineq = load(damaged_dict_preset + '/' + 'mip_delta_path')
             if opt==1:
                 opt_soln_ineq = load(damaged_dict_preset + '/' + 'min_seq_path')
             if opt==2:
@@ -4236,7 +4560,10 @@ if __name__ == '__main__':
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
                 LASR_obj_ineq, __, __ = eval_sequence(net_after, LASR_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
-                altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
+                #altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
+                #    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+            if mip==3:
+                mip3_obj_ineq, __, __ = eval_sequence(net_after, mip3_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
             if opt:
                 opt_obj_ineq, __, __ = eval_sequence(net_after, opt_soln_ineq, after_eq_tstt,
@@ -4283,8 +4610,11 @@ if __name__ == '__main__':
                     LAFO_obj_ineq)])
                 t.add_row(['approx-LASR', LASR_obj_mc, LASR_obj_ineq], percentChange(LASR_obj_mc,
                     LASR_obj_ineq))
-                t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
-                    altLASR_obj_ineq))
+                #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
+                #    altLASR_obj_ineq))
+            if mip==3:
+                t.add_row(['MIP_delta', mip3_obj_mc, mip3_obj_ineq], percentChange(mip3_obj_mc,
+                    mip3_obj_ineq))
             if full:
                 t.add_row(['FULL ALGO', algo_obj_mc, algo_obj_ineq, percentChange(algo_obj_mc,
                     algo_obj_ineq)])
