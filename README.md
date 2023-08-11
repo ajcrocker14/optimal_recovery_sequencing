@@ -35,17 +35,17 @@ git clone https://github.com/bstabler/TransportationNetworks.git
 
 ```
 
-To build an executable of TAP-B, in tap-b directory run 'make parallel' in Ubuntu.
+To build an executable of TAP-B, in tap-b directory (tui branch) run 'make' in Ubuntu.
 
 Test script for optimal recovery sequencing after completing the above:
 ```
-python3 find_sequence.py -n SiouxFalls -b 5 -l 1 -r 1
+python3 find_sequence.py -n SiouxFalls -b 5 -r 1
 ```
 
 ## Authors
 
 * **Can Gokalp** - *Original implementation* 
-* **Abigail Crocker** - *Updated implementation for improved beam search, simulated annealing, multi-class demand, and multiple work crews*
+* **Abigail Crocker** - *Updated implementation for improved beam search, simulated annealing, additional estimation and MIP methods, multi-class demand, and multiple work crews*
 
 ## License
 

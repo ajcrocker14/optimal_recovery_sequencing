@@ -39,7 +39,6 @@ def load(fname, extension='pickle'):
     path = fname + "." + extension
     with open(path, 'rb') as f:
         item = pickle.load(f)
-
     return item
 
 
@@ -69,6 +68,24 @@ def read_scenario(fname='ScenarioAnalysis.xlsx', sname='Moderate_1'):
     for i in range(len(dlinks)):
         damage_dict[dlinks[i]] = cdays[i]
     return damage_dict
+
+
+def percentChange(a,b):
+    """returns percent change from a to b"""
+    res = 100*(np.array(b)-np.array(a)) / np.array(a)
+    return np.round(res,3)
+
+
+def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
+    """helper function for sorting/reversing lists"""
+    bang4buck = np.array(benefits) / np.array(days)
+    days = [x for __, x in sorted(zip(bang4buck, days), reverse=reverse)]
+    benefits = [x for __, x in sorted(zip(bang4buck, benefits), reverse=reverse)]
+
+    if rem_keys is not None:
+        rem_keys = [x for __, x in sorted(zip(bang4buck, rem_keys), reverse=reverse)]
+        return benefits, days, rem_keys
+    return benefits, days
 
 
 def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=False):

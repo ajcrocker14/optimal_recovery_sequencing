@@ -1,10 +1,10 @@
 from graphing import *
-from network import *
 from correspondence import *
+from search import search
+from search import get_se_nodes
 
 import os.path
 from ctypes import *
-
 import random
 import operator as op
 from functools import reduce
@@ -24,14 +24,17 @@ import pstats
 import networkx as nx
 import progressbar
 # import caffeine
+from network import *
+
 
 extension = '.pickle'
 
 parser = argparse.ArgumentParser(description='find an order for repairing bridges')
 parser.add_argument('-n', '--net_name', type=str, help='network name')
 parser.add_argument('-b', '--num_broken', type=int, help='number of broken bridges')
-parser.add_argument('-a', '--approx', type=bool,
-                    help='approximation methods enabled - LAFO and LASR', default=False)
+parser.add_argument('-a', '--approx', type=int, help=('approximation methods enabled - LAFO/LASR'
+                    +'1: display only min of LAFO/LASR, 2: display both, 3: also display altLASR'),
+                    default=0)
 parser.add_argument('-r', '--reps', type=int, help='number of scenarios with the given parameters',
                     default=5)
 parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
@@ -66,7 +69,7 @@ parser.add_argument('--opt', type=int,
 parser.add_argument('--mip', type=int,
                     help=('1: opt w/ precalced TSTTs, 2: ML TSTT values, 3: estimated ' +
                     'deltaTSTT[t,b] values, 4: deltaTSTT[t,b] values'),
-                    default=0) # uses Girobi solver, need license to use
+                    default=0) # uses Girobi solver, need license to use, coded for single-crew
 parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs',
                     default=False)
 parser.add_argument('--damaged', type=str, help='set damaged_dict to previously stored values',
@@ -91,82 +94,6 @@ class BestSoln():
     def __init__(self):
         self.cost = None
         self.path = None
-
-class sNode():
-    """A node class for bi-directional search for pathfinding"""
-
-    def __init__(self, visited=None, link_id=None, parent=None, tstt_after=None, tstt_before=None,
-                 level=None, forward=True, relax=False, not_fixed=None):
-
-        self.relax = relax
-        self.forward = forward
-        self.parent = parent
-        self.level = level
-        self.link_id = link_id
-        self.path = []
-        self.tstt_before = tstt_before
-        self.tstt_after = tstt_after
-        self.g = 0
-        self.h = 0
-        self.f = 0
-        if relax:
-            self.err_rate = 0.01
-        else:
-            self.err_rate = 0
-
-        self.assign_char()
-
-    def __str__(self):
-        return str(self.path)
-
-    def assign_char(self):
-
-        if self.parent is not None:
-            self.benefit = self.tstt_after - self.tstt_before
-            self.days = damaged_dict[self.link_id]
-            prev_path = deepcopy(self.parent.path)
-            prev_path.append(self.link_id)
-            self.path = prev_path
-            self.visited = set(self.path)
-            self.days_past = self.parent.days_past + self.days
-            self.before_eq_tstt = self.parent.before_eq_tstt
-            self.after_eq_tstt = self.parent.after_eq_tstt
-
-            self.realized = self.parent.realized + (self.tstt_before
-                - self.before_eq_tstt) * self.days
-            self.realized_u = self.parent.realized_u + (self.tstt_before
-                - self.before_eq_tstt) * self.days * (1 + self.err_rate)
-            self.realized_l = self.parent.realized_l + (self.tstt_before
-                - self.before_eq_tstt) * self.days * (1 - self.err_rate)
-            self.not_visited = set(damaged_dict.keys()).difference(self.visited)
-
-            self.forward = self.parent.forward
-            if self.forward:
-                self.not_fixed = self.not_visited
-                self.fixed = self.visited
-            else:
-                self.not_fixed = self.visited
-                self.fixed = self.not_visited
-
-        else:
-            if self.link_id is not None:
-                self.path = [self.link_id]
-                self.realized = (self.tstt_before - self.before_eq_tstt) * self.days
-                self.realized_u = (self.tstt_before - self.before_eq_tstt) * self.days * (1
-                    + self.err_rate)
-                self.realized_l = (self.tstt_before - self.before_eq_tstt) * self.days * (1
-                    - self.err_rate)
-                self.days_past = self.days
-
-            else:
-                self.realized = 0
-                self.realized_u = 0
-                self.realized_l = 0
-                self.days = 0
-                self.days_past = self.days
-
-    def __eq__(self, other):
-        return self.fixed == other.fixed
 
 
 def eval_working_sequence(
@@ -223,1056 +150,6 @@ def eval_working_sequence(
         tot_area += (tstt - before_eq_tstt) * days_list[i]
 
     return tot_area, tap_solved, tstt_list
-
-
-def get_successors_f(node, iter_num):
-    """given a state, returns list of bridges that have not yet been fixed"""
-    not_visited = node.not_visited
-    successors = []
-
-    if node.level != 0:
-        tail = node.path[-1]
-        for a_link in not_visited:
-            if iter_num >= 1000:
-                if wb[a_link]/damaged_dict[a_link] - bb[tail]/damaged_dict[tail] > 0:
-                    continue
-            successors.append(a_link)
-    else:
-        successors = not_visited
-
-    return successors
-
-
-def get_successors_b(node, iter_num):
-    """given a state, returns list of bridges that have not yet been removed"""
-    not_visited = node.not_visited
-    successors = []
-
-    if node.level != 0:
-        tail = node.path[-1]
-        for a_link in not_visited:
-            if iter_num >= 1000:
-                if - wb[tail]*damaged_dict[a_link] + bb[a_link]*damaged_dict[tail] < 0:
-                    continue
-            successors.append(a_link)
-    else:
-        successors = not_visited
-
-    return successors
-
-
-def expand_sequence_f(node, a_link, level):
-    """given a link and a node, expands the sequence"""
-    solved = 0
-    tstt_before = node.tstt_after
-
-    net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
-    net.not_fixed = set(node.not_fixed).difference(set([a_link]))
-    net.art_links = art_link_dict
-
-    global memory
-    if frozenset(net.not_fixed) in memory.keys():
-        tstt_after = memory[frozenset(net.not_fixed)]
-    else:
-        tstt_after = solve_UE(net=net, relax=node.relax)
-        memory[frozenset(net.not_fixed)] = (tstt_after)
-        solved = 1
-
-    global wb_update
-    global bb_update
-    diff = tstt_before - tstt_after
-    if wb_update[a_link] > diff:
-        wb_update[a_link] = diff
-    if bb_update[a_link] < diff:
-        bb_update[a_link] = diff
-
-    global wb
-    global bb
-    if wb[a_link] > diff:
-        wb[a_link] = diff
-    if bb[a_link] < diff:
-        bb[a_link] = diff
-
-    node = sNode(link_id=a_link, parent=node, tstt_after=tstt_after, tstt_before=tstt_before,
-                level=level, relax=node.relax)
-    del net
-
-    return node, solved
-
-
-def expand_sequence_b(node, a_link, level):
-    """given a link and a node, expands the sequence"""
-    solved = 0
-    tstt_after = node.tstt_before
-
-    net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
-    net.not_fixed = node.not_fixed.union(set([a_link]))
-    net.art_links = art_link_dict
-
-    global memory
-    if frozenset(net.not_fixed) in memory.keys():
-        tstt_before = memory[frozenset(net.not_fixed)]
-    else:
-        tstt_before = solve_UE(net=net, relax=node.relax)
-        memory[frozenset(net.not_fixed)] = tstt_before
-        solved = 1
-
-    global wb_update
-    global bb_update
-    diff = tstt_before - tstt_after
-    if wb_update[a_link] > diff:
-        wb_update[a_link] = diff
-    if bb_update[a_link] < diff:
-        bb_update[a_link] = diff
-
-    global wb
-    global bb
-    if wb[a_link] > diff:
-        wb[a_link] = diff
-    if bb[a_link] < diff:
-        bb[a_link] = diff
-
-    node = sNode(link_id=a_link, parent=node, tstt_after=tstt_after, tstt_before=tstt_before,
-                level=level, relax=node.relax)
-    del net
-
-    return node, solved
-
-
-def get_minlb(
-        node, fwd_node, bwd_node, orderedb_benefits, orderedw_benefits, ordered_days,
-        forward_tstt, backward_tstt, bfs=None, uncommon_number=0, common_number=0):
-    """finds upper and lower bounds on tstt between a forward and backward node"""
-    slack = forward_tstt - backward_tstt
-    if slack < 0:
-        backward_tstt_orig = backward_tstt
-        backward_tstt = forward_tstt
-        forward_tstt = backward_tstt_orig
-        slack = forward_tstt - backward_tstt
-
-    if len(ordered_days) == 0:
-        node.ub = fwd_node.realized_u + bwd_node.realized_u
-        node.lb = fwd_node.realized_l + bwd_node.realized_l
-        cur_obj = fwd_node.realized + bwd_node.realized
-        new_feasible_path = fwd_node.path + bwd_node.path[::-1]
-        if cur_obj < bfs.cost:
-            bfs.cost = cur_obj
-            bfs.path = new_feasible_path
-
-        return uncommon_number, common_number
-
-    elif len(ordered_days) == 1:
-        node.ub = fwd_node.realized_u + bwd_node.realized_u + (fwd_node.tstt_after
-            - node.before_eq_tstt) * ordered_days[0]
-        node.lb = fwd_node.realized_l + bwd_node.realized_l + (fwd_node.tstt_after
-            - node.before_eq_tstt) * ordered_days[0]
-        cur_obj = fwd_node.realized + bwd_node.realized + (fwd_node.tstt_after
-            - node.before_eq_tstt) * ordered_days[0]
-
-        lo_link = list(set(damaged_dict.keys()).difference(set(fwd_node.path).union(
-                       set(bwd_node.path))))
-        new_feasible_path = fwd_node.path + [str(lo_link[0])] + bwd_node.path[::-1]
-
-        if cur_obj < bfs.cost:
-            bfs.cost = cur_obj
-            bfs.path = new_feasible_path
-
-        return uncommon_number, common_number
-
-    b, days_b = orderlists(orderedb_benefits, ordered_days, slack)
-    w, days_w = orderlists(orderedw_benefits, ordered_days, slack)
-    sumw = sum(w)
-    sumb = sum(b)
-
-    orig_lb = node.lb
-    orig_ub = node.ub
-
-    # Find lower bound from forwards
-    if sumw < slack:
-        for i in range(len(days_w)):
-            if i == 0:
-                fwd_w = deepcopy(w)
-                fwd_days_w = deepcopy(days_w)
-                b_tstt = sumw
-            else:
-                b_tstt = b_tstt - fwd_w[0]
-                fwd_w = fwd_w[1:]
-                fwd_days_w = fwd_days_w[1:]
-            node.lb += (b_tstt*fwd_days_w[0] + (bwd_node.tstt_before - node.before_eq_tstt)
-                * fwd_days_w[0])
-        common_number += 1
-    else:
-        node.lb += (fwd_node.tstt_after-node.before_eq_tstt)*min(days_w) + (bwd_node.tstt_before
-                    - node.before_eq_tstt) * (sum(days_w) - min(days_w))
-        uncommon_number += 1
-
-    lb2 = (fwd_node.tstt_after-node.before_eq_tstt)*min(days_w) + (bwd_node.tstt_before
-           - node.before_eq_tstt) * (sum(days_w) - min(days_w))
-    node.lb = max(node.lb, lb2 + orig_lb)
-
-    # Find upper bound from forwards
-    if sumb > slack:
-        for i in range(len(days_b)):
-            if i == 0:
-                fwd_b = deepcopy(b)
-                fwd_days_b = deepcopy(days_b)
-                fwd_b, fwd_days_b = orderlists(fwd_b, fwd_days_b, reverse=False)
-                b_tstt = sumb
-            else:
-                b_tstt = b_tstt - fwd_b[0]
-                fwd_b = fwd_b[1:]
-                fwd_days_b = fwd_days_b[1:]
-            node.ub += b_tstt*fwd_days_b[0] + (bwd_node.tstt_before
-                       - node.before_eq_tstt) * fwd_days_b[0]
-        common_number += 1
-    else:
-        node.ub += sum(days_b) * (forward_tstt - node.before_eq_tstt)
-        uncommon_number += 1
-
-    node.ub = min(node.ub, sum(days_b) * (forward_tstt - node.before_eq_tstt) + orig_ub)
-    if node.lb > node.ub:
-        if not node.relax:
-            pass
-        if abs(node.lb - node.ub) < 5:
-            node.ub, node.lb = node.lb, node.ub
-        else:
-            print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node)
-                  + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = '
-                  + str(backward_tstt))
-            print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
-            pass
-
-    return uncommon_number, common_number
-
-
-def set_bounds_bif(
-        node, open_list_b, end_node, front_to_end=True, bfs=None, uncommon_number=0,
-        common_number=0):
-    """given a forward child node, set upper and lower bounds on remaining path"""
-    sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
-    remaining = []
-    eligible_backward_connects = []
-
-    if front_to_end:
-        eligible_backward_connects = [end_node]
-    else:
-        for other_end in sum(open_list_b.values(),[]):
-            if len(set(node.visited).intersection(other_end.visited)) == 0:
-                eligible_backward_connects.append(other_end)
-
-    minlb = np.inf
-    maxub = np.inf
-    if len(eligible_backward_connects) == 0:
-        eligible_backward_connects = [end_node]
-    minother_end = None
-
-    for other_end in eligible_backward_connects:
-        ordered_days = []
-        orderedw_benefits = []
-        orderedb_benefits = []
-
-        node.ub = node.realized_u + other_end.realized_u
-        node.lb = node.realized + other_end.realized
-
-        union = node.visited.union(other_end.visited)
-        remaining = set(damaged_dict.keys()).difference(union)
-        for key, value in sorted_d:
-            if key in remaining:
-                ordered_days.append(value)
-                orderedw_benefits.append(wb[key])
-                orderedb_benefits.append(bb[key])
-
-        forward_tstt = node.tstt_after
-        backward_tstt = other_end.tstt_before
-        uncommon_number, common_number = get_minlb(node, node, other_end, orderedb_benefits,
-            orderedw_benefits, ordered_days, forward_tstt, backward_tstt, bfs=bfs,
-            uncommon_number=uncommon_number, common_number=common_number)
-
-        if node.lb < minlb:
-            minlb = node.lb
-            minother_end = other_end
-        if node.ub < maxub:
-            maxub = node.ub
-
-    node.lb = minlb
-    node.ub = maxub
-
-    if node.lb > node.ub:
-        print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node)
-              + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = '
-              + str(backward_tstt))
-        print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
-
-    return uncommon_number, common_number
-
-
-def set_bounds_bib(
-        node, open_list_f, start_node, front_to_end=True, bfs=None, uncommon_number=0,
-        common_number=0):
-    """given a backward child node, set upper and lower bounds on remaining path"""
-    sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
-    remaining = []
-    eligible_backward_connects = []
-
-    if front_to_end:
-        eligible_backward_connects = [start_node]
-    else:
-        for other_end in sum(open_list_f.values(), []):
-            if len(set(node.visited).intersection(other_end.visited)) == 0:
-                eligible_backward_connects.append(other_end)
-
-    minlb = np.inf
-    maxub = np.inf
-    if len(eligible_backward_connects) == 0:
-        eligible_backward_connects = [start_node]
-    minother_end = None
-
-    for other_end in eligible_backward_connects:
-        ordered_days = []
-        orderedw_benefits = []
-        orderedb_benefits = []
-
-        node.ub = node.realized_u + other_end.realized_u
-        node.lb = node.realized + other_end.realized
-
-        union = node.visited.union(other_end.visited)
-        remaining = set(damaged_dict.keys()).difference(union)
-        for key, value in sorted_d:
-            if key in remaining:
-                ordered_days.append(value)
-                orderedw_benefits.append(wb[key])
-                orderedb_benefits.append(bb[key])
-
-        forward_tstt = other_end.tstt_after
-        backward_tstt = node.tstt_before
-        uncommon_number, common_number = get_minlb(node, other_end, node, orderedb_benefits,
-            orderedw_benefits, ordered_days, forward_tstt, backward_tstt, bfs=bfs,
-            uncommon_number=uncommon_number, common_number=common_number)
-
-        if node.lb < minlb:
-            minlb = node.lb
-            minother_end = other_end
-        if node.ub < maxub:
-            maxub = node.ub
-
-    node.lb = minlb
-    node.ub = maxub
-
-    if node.lb > node.ub:
-        print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node)
-              + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = '
-              + str(backward_tstt))
-        print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
-
-    return uncommon_number, common_number
-
-
-def expand_forward(
-        start_node, end_node, minimum_ff_n, open_list_b, open_list_f, bfs, num_tap_solved,
-        max_level_b, closed_list_f, closed_list_b, iter_num, front_to_end=False,
-        uncommon_number=0, tot_child=0, common_number=0):
-    """expand the search tree forwards"""
-
-    fvals = [node.f for node in sum(open_list_f.values(),[])]
-    update_bfs = False
-    minfind = np.argmin(fvals)
-    minimum_ff_n = sum(open_list_f.values(),[])[minfind]
-    current_node = minimum_ff_n
-    open_list_f[minimum_ff_n.level].remove(minimum_ff_n)
-    if len(open_list_f[minimum_ff_n.level]) == 0:
-        del open_list_f[minimum_ff_n.level]
-    cur_visited = current_node.visited
-
-    can1, can2 = False, False
-    # can3, can4 = False, False
-    if len(damaged_dict)-len(cur_visited) in open_list_b.keys():
-        can1 = True
-    if len(damaged_dict)-len(cur_visited) - 1 in open_list_b.keys():
-        can2 = True
-    # if len(damaged_dict)-len(cur_visited) in closed_list_b.keys():
-    #     can3 = True
-    # if len(damaged_dict)-len(cur_visited) - 1 in closed_list_b.keys():
-    #     can4 = True
-
-    go_through = []
-    if can1:
-        go_through.extend(open_list_b[len(damaged_dict) - len(cur_visited)])
-    if can2:
-        go_through.extend(open_list_b[len(damaged_dict) - len(cur_visited) - 1])
-    # if can3:
-    #     go_through.extend(closed_list_b[len(damaged_dict) - len(cur_visited)])
-    # if can4:
-    #     go_through.extend(closed_list_b[len(damaged_dict) - len(cur_visited) - 1])
-
-    for other_end in go_through:
-        if (len(set(other_end.visited).intersection(set(cur_visited))) == 0
-                and len(damaged_dict) - len(set(other_end.visited).union(set(cur_visited))) == 1):
-            lo_link = set(damaged_dict.keys()).difference(
-                set(other_end.visited).union(set(cur_visited)))
-            lo_link = lo_link.pop()
-            cur_soln = current_node.g + other_end.g + (current_node.tstt_after
-                - current_node.before_eq_tstt) * damaged_dict[lo_link]
-            cur_path = current_node.path + [str(lo_link)] + other_end.path[::-1]
-            if cur_soln <= bfs.cost:
-                bfs.cost = cur_soln
-                bfs.path = cur_path
-                update_bfs = True
-
-        if set(other_end.not_visited) == set(cur_visited):
-            cur_soln = current_node.g + other_end.g
-            cur_path = current_node.path + other_end.path[::-1]
-            if cur_soln <= bfs.cost:
-                bfs.cost = cur_soln
-                bfs.path = cur_path
-                update_bfs = True
-
-    # Found the goal
-    if current_node == end_node:
-        return (open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child,
-                uncommon_number, common_number, update_bfs)
-    if iter_num > 3*len(damaged_dict):
-        if current_node.f > bfs.cost:
-            print('Iteration ' + str(iter_num) + ', current node ' + str(current_node)
-                  + ' is pruned.')
-            return (open_list_f, num_tap_solved, current_node.level, minimum_ff_n, tot_child,
-                    uncommon_number, common_number, update_bfs)
-
-    # Generate children
-    eligible_expansions = get_successors_f(current_node, iter_num)
-    children = []
-    current_level = current_node.level
-    for a_link in eligible_expansions:
-
-        # Create new node
-        current_level = current_node.level + 1
-        new_node, solved = expand_sequence_f(
-            current_node, a_link, level=current_level)
-        num_tap_solved += solved
-        new_node.g = new_node.realized
-
-        # Append
-        append = True
-        removal = False
-        if current_level in open_list_f.keys():
-            for open_node in open_list_f[current_level]:
-                if open_node == new_node:
-                    if new_node.g >= open_node.g:
-                        append = False
-                        break
-                    else:
-                        removal = True
-                        break
-        if removal:
-            open_list_f[current_level].remove(open_node)
-        if append:
-            children.append(new_node)
-
-    del current_node
-
-    # Loop through children
-    for child in children:
-        # Set upper and lower bounds
-        tot_child += 1
-        uncommon_number, common_number = set_bounds_bif(child, open_list_b,
-            front_to_end=front_to_end, end_node=end_node, bfs=bfs,
-            uncommon_number=uncommon_number, common_number=common_number)
-
-        if child.ub <= bfs.cost:
-            if len(child.path) == len(damaged_dict):
-                if child.g < bfs.cost:
-                    bfs.cost = child.g
-                    bfs.path = child.path
-                    update_bfs = True
-        if child.lb == child.ub:
-            continue
-        if child.lb > child.ub:
-            print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node)
-                  + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = '
-                  + str(backward_tstt))
-            print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
-
-        child.g = child.realized
-        child.f = child.lb
-
-        if iter_num > 3*len(damaged_dict):
-            if child.f > bfs.cost:
-                # print('Iter ' + str(iter_num) + ' Child node ' + str(child)
-                #       + ' not added because child.f < bfs.cost.')
-                continue
-
-        if current_level not in open_list_f.keys():
-            open_list_f[current_level] = []
-        open_list_f[current_level].append(child)
-        del child
-
-    return (open_list_f, num_tap_solved, current_level, minimum_ff_n, tot_child, uncommon_number,
-            common_number, update_bfs)
-
-
-def expand_backward(
-        start_node, end_node, minimum_bf_n, open_list_b, open_list_f, bfs, num_tap_solved,
-        max_level_f, closed_list_f, closed_list_b, iter_num, front_to_end=False,
-        uncommon_number=0, tot_child=0, common_number=0):
-    """expand the search tree forwards"""
-
-    fvals = [node.f for node in sum(open_list_b.values(),[])]
-    update_bfs = False
-    minfind = np.argmin(fvals)
-    minimum_bf_n = sum(open_list_b.values(),[])[minfind]
-    current_node = minimum_bf_n
-    open_list_b[minimum_bf_n.level].remove(minimum_bf_n)
-
-    if len(open_list_b[minimum_bf_n.level]) == 0:
-        del open_list_b[minimum_bf_n.level]
-    cur_visited = current_node.visited
-
-    can1, can2 = False, False
-    # can3, can4 = False, False
-    if len(damaged_dict)-len(cur_visited) in open_list_f.keys():
-        can1 = True
-    if len(damaged_dict)-len(cur_visited) - 1 in open_list_f.keys():
-        can2 = True
-    # if len(damaged_dict)-len(cur_visited) in closed_list_f.keys():
-    #     can3 = True
-    # if len(damaged_dict)-len(cur_visited) - 1 in closed_list_f.keys():
-    #     can4 = True
-
-    go_through = []
-    if can1:
-        go_through.extend(open_list_f[len(damaged_dict)-len(cur_visited)])
-    if can2:
-        go_through.extend(open_list_f[len(damaged_dict)-len(cur_visited)-1])
-    # if can3:
-    #     go_through.extend(closed_list_f[len(damaged_dict) - len(cur_visited)])
-    # if can4:
-    #     go_through.extend(closed_list_f[len(damaged_dict) - len(cur_visited) - 1])
-
-    for other_end in go_through:
-        if (len(set(other_end.visited).intersection(set(cur_visited))) == 0
-                and len(damaged_dict) - len(set(other_end.visited).union(set(cur_visited))) == 1):
-            lo_link = set(damaged_dict.keys()).difference(
-                set(other_end.visited).union(set(cur_visited)))
-            lo_link = lo_link.pop()
-            cur_soln = current_node.g + other_end.g + (other_end.tstt_after
-                - other_end.before_eq_tstt) * damaged_dict[lo_link]
-            if cur_soln <= bfs.cost:
-                bfs.cost = cur_soln
-                bfs.path = other_end.path + [str(lo_link)] + current_node.path[::-1]
-                update_bfs = True
-
-        elif set(other_end.not_visited) == set(cur_visited):
-            cur_soln = current_node.g + other_end.g
-            if cur_soln <= bfs.cost:
-                bfs.cost = cur_soln
-                bfs.path = other_end.path + current_node.path[::-1]
-                update_bfs = True
-
-    # Found the goal
-    if current_node == start_node:
-        return (open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child,
-                uncommon_number, common_number, update_bfs)
-
-    if iter_num > 3*len(damaged_dict):
-        if current_node.f > bfs.cost:
-            print('Iteration ' + str(iter_num) + ', current node ' + str(current_node)
-                  + ' is pruned.')
-            return (open_list_b, num_tap_solved, current_node.level, minimum_bf_n, tot_child,
-                    uncommon_number, common_number, update_bfs)
-
-    # Generate children
-    eligible_expansions = get_successors_b(current_node, iter_num)
-    children = []
-    current_level = current_node.level
-
-    for a_link in eligible_expansions:
-        # Create new node
-        current_level = current_node.level + 1
-        new_node, solved = expand_sequence_b(current_node, a_link, level=current_level)
-        num_tap_solved += solved
-        new_node.g = new_node.realized
-
-        append = True
-        removal = False
-        if current_level in open_list_b.keys():
-            for open_node in open_list_b[current_level]:
-                if open_node == new_node:
-                    if new_node.g >= open_node.g:
-                        append = False
-                        break
-                    else:
-                        removal = True
-                        break
-        if removal:
-            open_list_b[current_level].remove(open_node)
-        if append:
-            children.append(new_node)
-
-    del current_node
-
-    # Loop through children
-    for child in children:
-        # set upper and lower bounds
-        tot_child += 1
-        uncommon_number, common_number = set_bounds_bib(child, open_list_f,
-            front_to_end=front_to_end, start_node=start_node, bfs=bfs,
-            uncommon_number=uncommon_number, common_number=common_number)
-
-        if child.ub <= bfs.cost:
-            # best_ub = child.ub
-            if len(child.path) == len(damaged_dict):
-                if child.g < bfs.cost:
-                    bfs.cost = child.g
-                    bfs.path = child.path[::-1]
-                    update_bfs = True
-        if child.lb == child.ub:
-            continue
-        if child.lb > child.ub:
-            print('node.lb > node.ub for node : ' + str(node) + ' and bwd node : ' + str(bwd_node)
-                  + '. Forward TSTT = ' + str(forward_tstt) + ' and backward TSTT = '
-                  + str(backward_tstt))
-            print('Worst benefits : ' + str(w) + ' and best benefits : ' + str(b))
-            pass
-
-        child.g = child.realized
-        child.f = child.lb
-
-        if iter_num > 3*len(damaged_dict):
-            if child.f > bfs.cost:
-                # print('Iter ' + str(iter_num) + ' Child node ' + str(child)
-                #       + ' not added because child.f < bfs.cost.')
-                continue
-
-        if current_level not in open_list_b.keys():
-            open_list_b[current_level] = []
-        open_list_b[current_level].append(child)
-        del child
-
-    return (open_list_b, num_tap_solved, current_level, minimum_bf_n, tot_child, uncommon_number,
-            common_number, update_bfs)
-
-
-def purge(
-        open_list_b, open_list_f, beam_k, num_purged, len_f, len_b, closed_list_f, closed_list_b,
-        f_activated, b_activated, minimum_ff_n, minimum_bf_n, iter_num, beta=256, n_0=0.1):
-    """purge nodes as part of beam search"""
-    if f_activated:
-        for i in range(2, len(damaged_dict) + 1):
-            if i in open_list_f.keys():
-                values_ofn = np.ones((beam_k)) * np.inf
-                indices_ofn = np.ones((beam_k)) * np.inf
-                keep_f = []
-                if len(open_list_f[i]) == 0:
-                    del open_list_f[i]
-                    continue
-
-                for idx, ofn in enumerate(open_list_f[i]):
-                    cur_lev = ofn.level
-                    try:
-                        cur_max = np.max(values_ofn[:])
-                        max_idx = np.argmax(values_ofn[:])
-                    except:
-                        pdb.set_trace()
-                    if ofn.f < cur_max:
-                        indices_ofn[max_idx] = idx
-                        values_ofn[max_idx] = ofn.f
-
-                indices_ofn = indices_ofn.ravel()
-                indices_ofn = indices_ofn[indices_ofn < 1000]
-                keepinds = np.concatenate((np.array(keep_f), indices_ofn), axis=None).astype(int)
-
-                if len(indices_ofn) > 0:
-                    num_purged += len(open_list_f[i]) - len(indices_ofn)
-                closed_list_f[i] = list(np.array(open_list_f[i])[
-                    list(set(range(len(open_list_f[i]))).difference(set(keepinds)))])
-                open_list_f[i] = list(np.array(open_list_f[i])[keepinds])
-
-                try:
-                    olf_node = open_list_f[i][np.argmin([node.f for node in open_list_f[i]])]
-                    olf_min = olf_node.f
-                    olf_ub = olf_node.ub
-                except ValueError:
-                    continue
-                removed_from_closed = []
-
-                for a_node in closed_list_f[i]:
-                    if a_node.lb <= olf_min * (1 + n_0 * 0.5**(iter_num//beta)):
-                        open_list_f[i].append(a_node)
-                        removed_from_closed.append(a_node)
-                    elif a_node.ub <= olf_ub:
-                        open_list_f[i].append(a_node)
-                        removed_from_closed.append(a_node)
-
-                for a_node in removed_from_closed:
-                    closed_list_f[i].remove(a_node)
-                del removed_from_closed
-
-    if b_activated:
-        for i in range(2, len(damaged_dict)+1):
-            if i in open_list_b.keys():
-                keep_b = []
-                values_ofn = np.ones((beam_k)) * np.inf
-                indices_ofn = np.ones((beam_k)) * np.inf
-                if len(open_list_b[i]) == 0:
-                    del open_list_b[i]
-                    continue
-
-                for idx, ofn in enumerate(open_list_b[i]):
-                    cur_lev = ofn.level
-                    try:
-                        cur_max = np.max(values_ofn[:])
-                        max_idx = np.argmax(values_ofn[:])
-                    except:
-                        pass
-
-                    if ofn.f < cur_max:
-                        indices_ofn[max_idx] = idx
-                        values_ofn[max_idx] = ofn.f
-
-                indices_ofn = indices_ofn.ravel()
-                indices_ofn = indices_ofn[indices_ofn < 1000]
-                keepinds = np.concatenate((np.array(keep_b), indices_ofn), axis=None).astype(int)
-
-                if len(indices_ofn) > 0:
-                    num_purged += len(open_list_b[i]) - len(indices_ofn)
-                closed_list_b[i] = list(np.array(open_list_b[i])[
-                    list(set(range(len(open_list_b[i]))).difference(set(keepinds)))])
-                open_list_b[i] = list(np.array(open_list_b[i])[keepinds])
-
-                try:
-                    olb_node = open_list_b[i][np.argmin([node.f for node in open_list_b[i]])]
-                    olb_min = olb_node.f
-                    olb_ub = olb_node.ub
-                except ValueError:
-                    continue
-                removed_from_closed = []
-
-                for a_node in closed_list_b[i]:
-                        if a_node.lb <= olb_min * (1 + n_0 * 0.5**(iter_num//beta)):
-                            open_list_b[i].append(a_node)
-                            removed_from_closed.append(a_node)
-                        elif a_node.ub <= olb_ub:
-                            open_list_b[i].append(a_node)
-                            removed_from_closed.append(a_node)
-
-                for a_node in removed_from_closed:
-                    closed_list_b[i].remove(a_node)
-                del removed_from_closed
-
-    return open_list_b, open_list_f, num_purged,  f_activated, b_activated, {}, {}
-    # return open_list_b, open_list_f, num_purged,  f_activated, b_activated, closed_list_f, closed_list_b
-
-
-def search(
-        start_node, end_node, bfs, beam_search=False, beam_k=None, get_feas=True, beta=128,
-        gamma=128):
-    """Returns the best order to visit the set of nodes"""
-
-    # ideas in Holte: (search that meets in the middle)
-    # another idea is to expand the min priority, considering both backward and forward open list
-    # pr(n) = max(f(n), 2g(n)) - min priority expands
-    # U is best solution found so far - stops when - U <=max(C,fminF,fminB,gminF +gminB + eps)
-    # this is for front to end
-
-    # bfs comes from the greedy heuristic or importance solution
-    print('Starting search with a feasible solution with cost: ', bfs.cost)
-    max_level_b = 0
-    max_level_f = 0
-
-    iter_count = 0
-    kb, kf = 0, 0
-    damaged_links = damaged_dict.keys()
-
-    # Initialize both open and closed list for forward and backward directions
-    open_list_f = {}
-    open_list_f[max_level_f] = [start_node]
-    closed_list_f = {}
-    open_list_b = {}
-    open_list_b[max_level_b] = [end_node]
-    closed_list_b = {}
-    minimum_ff_n = start_node
-    minimum_bf_n = end_node
-
-    num_tap_solved = 0
-    f_activated, b_activated = False, False
-    tot_child = 0
-    uncommon_number = 0
-    common_number = 0
-    num_purged = 0
-    len_f = len(sum(open_list_f.values(), []))
-    len_b = len(sum(open_list_b.values(), []))
-
-    if graphing:
-        global bs_time_list
-        global bs_OBJ_list
-        bs_time_list.append(0)
-        bs_OBJ_list.append(deepcopy(bfs.cost))
-
-    search_timer = time.time()
-    while len_f > 0 or len_b > 0:
-        iter_count += 1
-        search_direction = 'Forward'
-        len_f = len(sum(open_list_f.values(), []))
-        len_b = len(sum(open_list_b.values(), []))
-
-        if len_f <= len_b and len_f != 0:
-            search_direction = 'Forward'
-        else:
-            if len_f != 0:
-                search_direction = 'Backward'
-            else:
-                search_direction = 'Forward'
-
-        if search_direction == 'Forward':
-            (open_list_f, num_tap_solved, level_f, minimum_ff_n, tot_child, uncommon_number,
-                common_number, update_bfs) = expand_forward(start_node, end_node, minimum_ff_n,
-                open_list_b, open_list_f, bfs, num_tap_solved, max_level_b, closed_list_f,
-                closed_list_b, iter_count, front_to_end=False, uncommon_number=uncommon_number,
-                tot_child=tot_child, common_number=common_number)
-            max_level_f = max(max_level_f, level_f)
-        else:
-            (open_list_b, num_tap_solved, level_b, minimum_bf_n, tot_child, uncommon_number,
-                common_number, update_bfs) = expand_backward(start_node, end_node, minimum_bf_n,
-                open_list_b, open_list_f, bfs, num_tap_solved, max_level_f, closed_list_f,
-                closed_list_b, iter_count, front_to_end=False, uncommon_number=uncommon_number,
-                tot_child=tot_child, common_number=common_number)
-            max_level_b = max(max_level_b, level_b)
-
-        if update_bfs and graphing:
-            bs_time_list.append(time.time() - search_timer)
-            bs_OBJ_list.append(deepcopy(bfs.cost))
-
-        all_open_f = sum(open_list_f.values(), [])
-        all_open_b = sum(open_list_b.values(), [])
-        len_f = len(all_open_f)
-        len_b = len(all_open_b)
-
-        if (len_f == 0 or len_b == 0) and bfs.path is not None:
-            print('Either forward or backward open set has length 0')
-            return (bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number,
-                    num_purged)
-
-        if max(minimum_bf_n.f, minimum_ff_n.f) >= bfs.cost and bfs.path is not None:
-            print('Minimum lower bound is larger than feasible upper bound')
-            return (bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number,
-                    num_purged)
-
-        # Stop after 2000 iterations
-        if iter_count >= 2000:
-            return (bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number,
-                    num_purged)
-
-        fvals = [node.f for node in all_open_f]
-        minfind = np.argmin(fvals)
-        minimum_ff_n = all_open_f[minfind]
-
-        bvals = [node.f for node in all_open_b]
-        minbind = np.argmin(bvals)
-        minimum_bf_n = all_open_b[minbind]
-
-        # Every 64 (128) iter, update bounds
-        if iter_count < 512:
-            up_freq = 64
-        else:
-            up_freq = 128
-
-        if iter_count % up_freq==0 and iter_count!=0:
-            print('----------')
-            print(f'Search time elapsed: {(time.time() - search_timer) / 60}')
-            print(f'max_level_f: {max_level_f}, max_level_b: {max_level_b}')
-            print('Iteration: {}, best_found: {}'.format(iter_count, bfs.cost))
-            if graphing:
-                bs_time_list.append(time.time() - search_timer)
-                bs_OBJ_list.append(deepcopy(bfs.cost))
-
-            global wb
-            global bb
-            global wb_update
-            global bb_update
-
-            wb = deepcopy(wb_update)
-            bb = deepcopy(bb_update)
-            for k,v in open_list_f.items():
-                for a_node in v:
-                    __, __ = set_bounds_bif(a_node, open_list_b, front_to_end=False,
-                        end_node=end_node, bfs=bfs, uncommon_number=uncommon_number,
-                        common_number=common_number)
-                    a_node.f = a_node.lb
-
-            for k, v in open_list_b.items():
-                for a_node in v:
-                    __, __ = set_bounds_bib(a_node, open_list_f, front_to_end=False,
-                        start_node=start_node, bfs=bfs, uncommon_number=uncommon_number,
-                        common_number=common_number)
-                    a_node.f = a_node.lb
-
-        # every gamma iters, get feasible solution
-        if iter_count % gamma==0 and iter_count!=0:
-            if get_feas:
-                remaining = set(damaged_dict.keys()).difference(minimum_ff_n.visited)
-                tot_days = 0
-                for el in remaining:
-                    tot_days += damaged_dict[el]
-
-                eligible_to_add = list(deepcopy(remaining))
-                decoy_dd = deepcopy(damaged_dict)
-                for visited_links in minimum_ff_n.visited:
-                    del decoy_dd[visited_links]
-
-                after_ = minimum_ff_n.tstt_after
-                test_net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
-                test_net.art_links = art_link_dict
-                path = minimum_ff_n.path.copy()
-                new_bb = {}
-
-                for i in range(len(remaining)):
-                    new_tstts = []
-                    for link in eligible_to_add:
-                        added = [link]
-                        not_fixed = set(eligible_to_add).difference(set(added))
-                        test_net.not_fixed = set(not_fixed)
-
-                        after_fix_tstt = solve_UE(net=test_net)
-                        diff = after_ - after_fix_tstt
-                        new_bb[link] = diff
-
-                        if wb_update[link] > diff:
-                            wb_update[link] = diff
-                        if bb_update[link] < diff:
-                            bb_update[link] = diff
-
-                        if wb[link] > diff:
-                            wb[link] = diff
-                        if bb[link] < diff:
-                            bb[link] = diff
-
-                        new_tstts.append(after_fix_tstt)
-
-                    ordered_days = []
-                    orderedb_benefits = []
-                    sorted_d = sorted(decoy_dd.items(), key=lambda x: x[1])
-                    for key, value in sorted_d:
-                        ordered_days.append(value)
-                        orderedb_benefits.append(new_bb[key])
-                    __, __, ord = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
-
-                    link_to_add = ord[0][0]
-                    path.append(link_to_add)
-                    min_index = eligible_to_add.index(link_to_add)
-                    after_ = new_tstts[min_index]
-                    eligible_to_add.remove(link_to_add)
-                    decoy_dd = deepcopy(decoy_dd)
-                    del decoy_dd[link_to_add]
-
-                net = deepcopy(net_after)
-                bound, __, __ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt,
-                    num_crews=num_crews)
-
-                if bound < bfs.cost:
-                    bfs.cost = bound
-                    bfs.path = path
-
-                # Backwards pass
-                remaining = set(damaged_dict.keys()).difference(minimum_bf_n.visited)
-                tot_days = 0
-                for el in remaining:
-                    tot_days += damaged_dict[el]
-
-                eligible_to_add = list(deepcopy(remaining))
-                after_ = after_eq_tstt
-                test_net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
-                test_net.art_links = art_link_dict
-
-                decoy_dd = deepcopy(damaged_dict)
-                for visited_links in minimum_bf_n.visited:
-                    del decoy_dd[
-                        visited_links]
-
-                path = []
-                new_bb = {}
-
-                for i in range(len(remaining)):
-                    improvements = []
-                    new_tstts = []
-                    for link in eligible_to_add:
-                        added = [link]
-                        not_fixed = set(eligible_to_add).difference(set(added))
-                        test_net.not_fixed = set(not_fixed)
-
-                        after_fix_tstt = solve_UE(net=test_net)
-                        diff = after_ - after_fix_tstt
-                        new_bb[link] = diff
-
-                        if wb_update[link] > diff:
-                            wb_update[link] = diff
-                        if bb_update[link] < diff:
-                            bb_update[link] = diff
-
-                        if wb[link] > diff:
-                            wb[link] = diff
-                        if bb[link] < diff:
-                            bb[link] = diff
-
-                        new_tstts.append(after_fix_tstt)
-
-                    ordered_days = []
-                    orderedb_benefits = []
-
-                    sorted_d = sorted(decoy_dd.items(), key=lambda x: x[1])
-                    for key, value in sorted_d:
-                        ordered_days.append(value)
-                        orderedb_benefits.append(new_bb[key])
-
-                    __, __, ord = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
-
-                    link_to_add = ord[0][0]
-                    path.append(link_to_add)
-                    min_index = eligible_to_add.index(link_to_add)
-                    after_ = new_tstts[min_index]
-                    eligible_to_add.remove(link_to_add)
-                    decoy_dd = deepcopy(decoy_dd)
-                    del decoy_dd[link_to_add]
-
-                path.extend(minimum_bf_n.path[::-1])
-                net = deepcopy(net_after)
-                bound, __, __ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt,
-                    num_crews=num_crews)
-
-                if bound < bfs.cost:
-                    bfs.cost = bound
-                    bfs.path = path
-
-            if graphing:
-                bs_time_list.append(time.time() - search_timer)
-                bs_OBJ_list.append(deepcopy(bfs.cost))
-
-            seq_length = len(damaged_links)
-            threshold_start = seq_length + int(seq_length**2/int(math.log(seq_length,2)))
-
-            if len_f >= threshold_start:
-                f_activated = True
-            if len_b >= threshold_start:
-                b_activated = True
-
-            if f_activated or b_activated:
-                print('Iteration ' + str(iter_count) + ': len_f is ' + str(len_f) + ' and len_b is '
-                      + str(len_b) + ', about to purge')
-
-                if beam_search:
-                    (open_list_b, open_list_f, num_purged, f_activated, b_activated,
-                        closed_list_f, closed_list_b) = purge(open_list_b, open_list_f, beam_k,
-                        num_purged, len_f, len_b, closed_list_f, closed_list_b, f_activated,
-                        b_activated, minimum_ff_n, minimum_bf_n, iter_count, beta=beta)
-
-    # Check in case something weird happened
-    if len(bfs.path) != len(damaged_links):
-        print('Best path found is not full length')
-
-    if graphing:
-        bs_time_list.append(time.time() - search_timer)
-        bs_OBJ_list.append(deepcopy(bfs.cost))
-
-    return (bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number,
-            num_purged)
 
 
 def last_benefit(
@@ -1461,72 +338,6 @@ def safety(last_b, first_b):
     return wb, bb, swapped_links
 
 
-def get_se_nodes(damaged_links, after_eq_tstt, before_eq_tstt, relax=False):
-    """initiate start and end nodes for beam search"""
-    start_node = sNode(tstt_after=after_eq_tstt)
-    start_node.before_eq_tstt = before_eq_tstt
-    start_node.after_eq_tstt = after_eq_tstt
-    start_node.realized = 0
-    start_node.realized_u = 0
-    start_node.level = 0
-    start_node.visited, start_node.not_visited = set([]), set(damaged_links)
-    start_node.fixed, start_node.not_fixed = set([]), set(damaged_links)
-
-    end_node = sNode(tstt_before=before_eq_tstt, forward=False)
-    end_node.before_eq_tstt = before_eq_tstt
-    end_node.after_eq_tstt = after_eq_tstt
-    end_node.level = 0
-    end_node.visited, end_node.not_visited = set([]), set(damaged_links)
-    end_node.fixed, end_node.not_fixed = set(damaged_links), set([])
-
-    start_node.relax = relax
-    end_node.relax = relax
-
-    return start_node, end_node
-
-
-def get_wb(damaged_links, save_dir, relax=False, bsearch=False, ext_name=''):
-    """get worst and best benefits of repairing links, and initiate start and end nodes"""
-    net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
-        real=True, relax=relax, bsearch=bsearch, ext_name=ext_name)
-    net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir, real=True,
-        relax=relax,  bsearch=bsearch, ext_name=ext_name)
-    upper_bound = (after_eq_tstt - before_eq_tstt) * sum(net_before.damaged_dict.values())
-
-    save(save_dir + '/damaged_dict', damaged_dict)
-    save(save_dir + '/upper_bound', upper_bound)
-    net_before.save_dir = save_dir
-    net_after.save_dir = save_dir
-
-    last_b = last_benefit(net_before, damaged_links, before_eq_tstt, relax=relax, bsearch=bsearch,
-        ext_name=ext_name)
-    first_b, bb_time = first_benefit(net_after, damaged_links, after_eq_tstt, relax=relax,
-        bsearch=bsearch, ext_name=ext_name)
-    wb, bb, swapped_links = safety(last_b, first_b)
-
-    start_node = sNode(tstt_after=after_eq_tstt)
-    start_node.before_eq_tstt = before_eq_tstt
-    start_node.after_eq_tstt = after_eq_tstt
-    start_node.realized = 0
-    start_node.realized_u = 0
-    start_node.level = 0
-    start_node.visited, start_node.not_visited = set([]), set(damaged_links)
-    start_node.fixed, start_node.not_fixed = set([]), set(damaged_links)
-
-    end_node = sNode(tstt_before=before_eq_tstt, forward=False)
-    end_node.before_eq_tstt = before_eq_tstt
-    end_node.after_eq_tstt = after_eq_tstt
-    end_node.level = 0
-    end_node.visited, end_node.not_visited = set([]), set(damaged_links)
-    end_node.fixed, end_node.not_fixed = set(damaged_links), set([])
-
-    start_node.relax = relax
-    end_node.relax = relax
-
-    return (wb, bb, last_b, first_b, start_node, end_node, net_after, net_before, after_eq_tstt,
-            before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links, upper_bound)
-
-
 def eval_state(state, after, damaged_links, eval_seq=False):
     """finds tstt for a repair state (checks memory first for cached solution)"""
     test_net = deepcopy(after)
@@ -1548,87 +359,18 @@ def eval_state(state, after, damaged_links, eval_seq=False):
 
     return tstt_after, num_tap
 
-def simple_preprocess(damaged_links, net_after):
+
+def find_approx(approx, damaged_links, net_after, last_b, first_b):
     """uses sampling as described in Rey et al. 2019 to find approximated
-    average first-order effects"""
+    average first-order effects. If approx==3, uses exact first and last
+    effects, and samples for middle values only"""
     X_train = []
     y_train = []
     Z_train = [0]*len(damaged_links)
     for i in range(len(damaged_links)):
         Z_train[i] = []
-
-    preprocessing_num_tap = 0
-    damaged_links = [i for i in damaged_links]
-
-    for k, v in memory.items():
-        pattern = np.ones(len(damaged_links))
-        state = [damaged_links.index(i) for i in k]
-        pattern[(state)] = 0
-        X_train.append(pattern)
-        y_train.append(v)
-        preprocessing_num_tap += 1
-
-    ns = 1
-    card_P = len(damaged_links)
-    denom = 2**card_P
-
-    # A value of 1 means the link has already been repaired in that state
-    for i in range(card_P):
-        nom = ns * comb(card_P, i)
-        num_to_sample = math.ceil(nom / denom)
-
-        for j in range(num_to_sample):
-            pattern = np.zeros(len(damaged_links))
-            temp_state = random.sample(damaged_links, i)
-            state = [damaged_links.index(i) for i in temp_state]
-            pattern[(state)] = 1
-
-            if any((pattern is test) or (pattern == test).all() for test in X_train):
-                pass
-            else:
-                TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
-                preprocessing_num_tap += tap
-                X_train.append(pattern)
-                y_train.append(TSTT)
-
-                for el in range(len(pattern)):
-                    new_pattern = np.zeros(len(damaged_links))
-                    new_state = deepcopy(temp_state)
-                    if pattern[el] == 1:
-                        new_state.remove(damaged_links[el])
-                    else:
-                        new_state.append(damaged_links[el])
-                    state = [damaged_links.index(i) for i in new_state]
-                    new_pattern[(state)] = 1
-
-                    if any((new_pattern is test) or (new_pattern == test).all() for test in
-                            X_train):
-                        pass
-                    else:
-                        new_TSTT, tap = eval_state(new_state, net_after, damaged_links,
-                            eval_seq=True)
-                        preprocessing_num_tap += tap
-                        X_train.append(new_pattern)
-                        y_train.append(new_TSTT)
-                        Z_train[el].append(abs(new_TSTT - TSTT))
-
-    Z_bar = np.zeros(len(damaged_links))
-    for i in range(len(damaged_links)):
-        Z_bar[i] = np.mean(Z_train[i])
-    print('Z_bar values are: ',Z_bar)
-
-    return Z_bar, preprocessing_num_tap
-
-
-def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b, first_b):
-    """uses sampling as described in Rey et al. 2019 to find approximated
-    average first-order effects for middle positions in the repair sequence"""
-    X_train = []
-    y_train = []
-    Z_train = [0]*len(damaged_links)
-    for i in range(len(damaged_links)):
-        Z_train[i] = []
-    alt_Z_train = deepcopy(Z_train)
+    if approx==3:
+        alt_Z_train = deepcopy(Z_train)
 
     print('first benefits: {}, last benefits: {}'.format(first_b,last_b))
 
@@ -1647,11 +389,14 @@ def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
     card_P = len(damaged_links)
     denom = 2**card_P
 
-    # presolve for benefit of repairing each link first and last
-    alt_Z_bar = np.zeros((3,card_P))
-    for i in range(card_P):
-        alt_Z_bar[0,i] = first_b[damaged_links[i]]
-        alt_Z_bar[2,i] = last_b[damaged_links[i]]
+    # capture benefit of repairing each link first and last
+    if approx==3:
+        alt_Z_bar = np.zeros((3,card_P))
+        for i in range(card_P):
+            alt_Z_bar[0,i] = first_b[damaged_links[i]]
+            alt_Z_bar[2,i] = last_b[damaged_links[i]]
+    else:
+        alt_Z_bar = None
 
     # A value of 1 means the link has already been repaired in that state
     mid = True
@@ -1667,53 +412,60 @@ def alt_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
             pattern[(state)] = 1
 
             if any((pattern is test) or (pattern == test).all() for test in X_train):
-                pass
+                try:
+                    TSTT = Y_train[X_train.index(pattern)]
+                except:
+                    continue
             else:
                 TSTT, tap = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
                 preprocessing_num_tap += tap
                 X_train.append(pattern)
                 y_train.append(TSTT)
 
-                for el in range(len(pattern)):
-                    new_pattern = np.zeros(card_P)
-                    new_state = deepcopy(temp_state)
-                    if pattern[el] == 1:
-                        new_state.remove(damaged_links[el])
-                        if sum(pattern) == 1 or sum(pattern) == card_P:
-                            mid = False
-                    else:
-                        new_state.append(damaged_links[el])
-                        if sum(pattern) == 0 or sum(pattern) == card_P - 1:
-                            mid = False
-                    state = [damaged_links.index(i) for i in new_state]
-                    new_pattern[(state)] = 1
+            for el in range(len(pattern)):
+                new_pattern = np.zeros(card_P)
+                new_state = deepcopy(temp_state)
+                if pattern[el] == 1:
+                    new_state.remove(damaged_links[el])
+                    if sum(pattern) == 1 or sum(pattern) == card_P:
+                        mid = False
+                else:
+                    new_state.append(damaged_links[el])
+                    if sum(pattern) == 0 or sum(pattern) == card_P - 1:
+                        mid = False
+                state = [damaged_links.index(i) for i in new_state]
+                new_pattern[(state)] = 1
 
-                    if any((new_pattern is test) or (new_pattern == test).all() for test in
-                            X_train):
-                        pass
-                    else:
-                        new_TSTT, tap = eval_state(new_state, net_after, damaged_links,
-                            eval_seq=True)
-                        preprocessing_num_tap += tap
-                        X_train.append(new_pattern)
-                        y_train.append(new_TSTT)
-                        Z_train[el].append(abs(new_TSTT - TSTT))
-                        if mid:
-                            alt_Z_train[el].append(abs(new_TSTT - TSTT))
+                if any((new_pattern is test) or (new_pattern == test).all() for test in
+                        X_train):
+                    try:
+                        new_TSTT = Y_train[X_train.index(new_pattern)]
+                    except:
+                        continue
+                else:
+                    new_TSTT, tap = eval_state(new_state, net_after, damaged_links,
+                        eval_seq=True)
+                    preprocessing_num_tap += tap
+                    X_train.append(new_pattern)
+                    y_train.append(new_TSTT)
+                Z_train[el].append(abs(new_TSTT - TSTT))
+                if mid and approx==3:
+                    alt_Z_train[el].append(abs(new_TSTT - TSTT))
 
     Z_bar = np.zeros(card_P)
     for i in range(card_P):
         Z_bar[i] = np.mean(Z_train[i])
     print('Z_bar values are: ',Z_bar)
 
-    for i in range(card_P):
-        alt_Z_bar[1,i] = np.mean(alt_Z_train[i])
-    print('alt Z_bar values are: ',alt_Z_bar)
+    if approx==3:
+        for i in range(card_P):
+            alt_Z_bar[1,i] = np.mean(alt_Z_train[i])
+        print('alt Z_bar values are: ',alt_Z_bar)
 
     return Z_bar, alt_Z_bar, preprocessing_num_tap
 
 
-def alt2_preprocess(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b, first_b):
+def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b, first_b):
     """uses sampling adapted from that described in Rey et al. 2019 to find
     approximated average first-order effects for EACH position in the repair
     sequence"""
@@ -2345,11 +1097,11 @@ def oldaltLASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, la
     return bound, path, elapsed, tap_solved
 
 
-def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar):
+def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, deltaTSTT):
     """approx solution method based on estimating change in TSTT due to repairing
     each link in each repair position (i.e. first through last). deltaTSTT values
     are used as OBJ function coefficients for the modified OBJ function, and the
-    mip is solving using Gurobi"""
+    mip is solving using Gurobi. Single-crew use only."""
     import gurobipy as gp
     from gurobipy import GRB
     start = time.time()
@@ -2359,7 +1111,7 @@ def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
     if not os.path.exists(fname + extension):
         mip_net = deepcopy(net_before)
         N = len(damaged_links)
-        delta = alt_Z_bar
+        delta = deltaTSTT
 
         # create model and add vars and constraints
         m = gp.Model('mip_delta')
@@ -2381,10 +1133,8 @@ def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
             for i in range(N):
                 path.append(list(damaged_links)[int(y_sol[i].nonzero()[0])])
             print('path found using Gurobi: ' + str(path))
-
         else:
             print('Gurobi solver status not optimal...')
-
 
         elapsed = time.time() - start + time_before
         bound, eval_taps, __ = eval_sequence(
@@ -2401,7 +1151,6 @@ def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
         elapsed = load(fname + '_elapsed')
 
     return bound, path, elapsed, tap_solved
-
 
 
 def SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
@@ -2580,18 +1329,6 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_c
     return min_cost, min_seq, elapsed, tap_solved
 
 
-def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
-    """helper function for sorting/reversing lists"""
-    bang4buck = np.array(benefits) / np.array(days)
-    days = [x for __, x in sorted(zip(bang4buck, days), reverse=reverse)]
-    benefits = [x for __, x in sorted(zip(bang4buck, benefits), reverse=reverse)]
-
-    if rem_keys is not None:
-        rem_keys = [x for __, x in sorted(zip(bang4buck, rem_keys), reverse=reverse)]
-        return benefits, days, rem_keys
-
-    return benefits, days
-
 def lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, first_b, bb_time):
     """heuristic which orders links for repair based on effect on tstt if repaired first"""
     start = time.time()
@@ -2619,56 +1356,6 @@ def lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, first_b, bb_
 
     return bound, lzg_order, elapsed, tap_solved
 
-
-def alt_lazy_greedy_heuristic():
-    """heuristic which orders links for repair based on effect on tstt if repaired first"""
-    start = time.time()
-    net_b = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
-    net_b.not_fixed = set([])
-    net_b.art_links = art_link_dict
-    net_b.damaged_dict = damaged_dict
-    b_eq_tstt = solve_UE(net=net_b, eval_seq=True, flows=True, warm_start=False)
-
-    damaged_links = damaged_dict.keys()
-    net_a = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
-    net_a.not_fixed = set(damaged_links)
-    net_a.art_links = art_link_dict
-    a_eq_tstt = solve_UE(net=net_a, eval_seq=True, warm_start=False)
-
-    lzg_bb = {}
-    links_to_remove = deepcopy(list(damaged_links))
-    to_visit = links_to_remove
-    added = []
-    for link in links_to_remove:
-        test_net = deepcopy(net_a)
-        added = [link]
-        not_fixed = set(to_visit).difference(set(added))
-        test_net.not_fixed = set(not_fixed)
-        tstt_after = solve_UE(net=test_net, rev=True)
-        lzg_bb[link] = a_eq_tstt - tstt_after
-
-    ordered_days = []
-    orderedb_benefits = []
-    sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
-    for key, value in sorted_d:
-        ordered_days.append(value)
-        orderedb_benefits.append(lzg_bb[key])
-
-    ob, od, lzg_order = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
-    lzg_order = [i[0] for i in lzg_order]
-    elapsed = time.time() - start
-
-    bound, eval_taps, _ = eval_sequence(
-        net_b, lzg_order, a_eq_tstt, b_eq_tstt, num_crews=num_crews)
-    tap_solved = len(damaged_dict)+2
-
-    fname = save_dir + '/lazygreedy_solution'
-    save(fname + '_obj', bound)
-    save(fname + '_path', lzg_order)
-    save(fname + '_elapsed', elapsed)
-    save(fname + '_num_tap', tap_solved)
-
-    return bound, lzg_order, elapsed, tap_solved
 
 def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after):
     """heuristic which orders links for repair at each step based on immediate effect on tstt"""
@@ -2897,7 +1584,7 @@ def greedy_heuristic_mult(
     return bound, path, elapsed, tap_solved
 
 
-def make_art_links():
+def make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult):
     """creates artificial links with travel time and length 10x before eq shortest path"""
     start = time.time()
     art_net = Network(NETFILE, TRIPFILE)
@@ -3105,12 +1792,6 @@ def plot_time_OBJ(
 
     save_fig(save_dir, 'timevsOBJ', tight_layout=True)
     plt.close(fig)
-
-
-def percentChange(a,b):
-    """returns percent change from a to b"""
-    res = 100*(np.array(b)-np.array(a)) / np.array(a)
-    return np.round(res,3)
 
 
 if __name__ == '__main__':
@@ -3601,12 +2282,7 @@ if __name__ == '__main__':
                 order of repair ahead of attributes (ie. '1' if repaired first) """
 
                 memory = {}
-                art_link_dict = make_art_links()
-                #benefit_analysis_st = time.time()
-                #(wb, bb, last_b, first_b, start_node, end_node, net_after, net_before, after_eq_tstt,
-                #    before_eq_tstt, time_net_before, time_net_after, bb_time, swapped_links,
-                #    upper_bound) = get_wb(damaged_links, save_dir)
-                #benefit_analysis_elapsed = time.time() - benefit_analysis_st
+                art_link_dict = make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult)
 
                 net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
                     real=True)
@@ -3617,7 +2293,9 @@ if __name__ == '__main__':
                 first_b, bb_time = first_benefit(net_before, damaged_links, before_eq_tstt)
                 last_b = last_benefit(net_after, damaged_links, after_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
-                upper_bound = (after_eq_tstt - before_eq_tstt) * sum(net_before.damaged_dict.values())
+                if num_crews==1:
+                    upper_bound = (after_eq_tstt - before_eq_tstt)
+                                   * sum(net_before.damaged_dict.values())
                 save(save_dir + '/upper_bound', upper_bound)
 
                 if damaged_dict_preset=='':
@@ -3665,12 +2343,7 @@ if __name__ == '__main__':
 
             else:
                 memory = {}
-                art_link_dict = make_art_links()
-                #benefit_analysis_st = time.time()
-                #(wb, bb, last_b, first_b, start_node, end_node, net_after, net_before,
-                #    after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, bb_time,
-                #    swapped_links, upper_bound) = get_wb(damaged_links, save_dir)
-                #benefit_analysis_elapsed = time.time() - benefit_analysis_st
+                art_link_dict = make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult)
 
                 net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
                     real=True)
@@ -3681,32 +2354,26 @@ if __name__ == '__main__':
                 first_b, bb_time = first_benefit(net_before, damaged_links, before_eq_tstt)
                 last_b = last_benefit(net_after, damaged_links, after_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
-                upper_bound = (after_eq_tstt - before_eq_tstt) * sum(net_before.damaged_dict.values())
+                if num_crews==1:
+                    upper_bound = (after_eq_tstt - before_eq_tstt)
+                                   * sum(net_before.damaged_dict.values())
                 save(save_dir + '/upper_bound', upper_bound)
 
                 if damaged_dict_preset=='':
                     plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True)
                 print('before tstt: {}, after tstt: {}, total (single crew) duration: {}'.format(
                       before_eq_tstt, after_eq_tstt, sum(damaged_dict.values())))
-                print('Simple upper bound on obj function (total travel delay): ', upper_bound)
+                if num_crews==1:
+                    print('Simple upper bound on obj function (total travel delay): ', upper_bound)
 
                 # Approx solution methods
                 if approx:
                     memory1 = deepcopy(memory)
-
                     preprocess_st = time.time()
-                    # model, meany, stdy, Z_bar, preprocessing_num_tap = preprocessing(
-                    #     damaged_links, net_after)
-                    # approx_params = (model, meany, stdy)
-                    Z_bar, preprocessing_num_tap = simple_preprocess(damaged_links, net_after)
+                    Z_bar, alt_Z_bar, preprocessing_num_tap = find_approx(approx, damaged_links,
+                         net_after, last_b, first_b)
                     preprocess_elapsed = time.time() - preprocess_st
-                    time_before = preprocess_elapsed + time_net_before
-
-                    #preprocess_st = time.time()
-                    #Z_bar, alt_Z_bar, preprocessing_num_tap = alt_preprocess(damaged_links,
-                    #    net_after, after_eq_tstt, before_eq_tstt, last_b, first_b)
-                    #preprocess_elapsed = time.time() - preprocess_st
-                    #time_before = preprocess_elapsed + time_net_before + 2*bb_time
+                    time_before = preprocess_elapsed + time_net_before + bb_time*2
 
                     # Largest Average First Order
                     LAFO_obj, LAFO_soln, LAFO_elapsed, LAFO_num_tap = LAFO(
@@ -3751,46 +2418,41 @@ if __name__ == '__main__':
 
 
                     # Modified LASR
-                    #altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
-                    #    net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
-                    #altLASR_num_tap += preprocessing_num_tap
-                    #if alt_crews == None and not multiclass:
-                    #    print('altLASR_obj: ', altLASR_obj)
-                    #elif multiclass and isinstance(net_after.tripfile, list):
-                    #    test_net = deepcopy(net_after)
-                    #    altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
-                    #        after_eq_tstt, before_eq_tstt, num_crews=num_crews,
-                    #        multiclass=multiclass)
-                    #    print('altLASR_obj: ', altLASR_obj_mc)
-                    #else:
-                    #    altLASR_obj_mult = [0]*(len(alt_crews)+1)
-                    #    altLASR_obj_mult[0] = LAFO_obj
-                    #    for num in range(len(alt_crews)):
-                    #        test_net = deepcopy(net_before)
-                    #        altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
-                    #            after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
-                    #    print('altLASR_obj: ', altLASR_obj_mult)
+                    if approx==3:
+                        altLASR_obj, altLASR_soln, altLASR_elapsed, altLASR_num_tap = altLASR(
+                            net_before, after_eq_tstt, before_eq_tstt, time_before, alt_Z_bar)
+                        altLASR_num_tap += preprocessing_num_tap
+                        if alt_crews == None and not multiclass:
+                            print('altLASR_obj: ', altLASR_obj)
+                        elif multiclass and isinstance(net_after.tripfile, list):
+                            test_net = deepcopy(net_after)
+                            altLASR_obj_mc, __, __ = eval_sequence(test_net, altLASR_soln,
+                                after_eq_tstt, before_eq_tstt, num_crews=num_crews,
+                                multiclass=multiclass)
+                            print('altLASR_obj: ', altLASR_obj_mc)
+                        else:
+                            altLASR_obj_mult = [0]*(len(alt_crews)+1)
+                            altLASR_obj_mult[0] = LAFO_obj
+                            for num in range(len(alt_crews)):
+                                test_net = deepcopy(net_before)
+                                altLASR_obj_mult[num+1], __, __ = eval_sequence(test_net, altLASR_soln,
+                                    after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                            print('altLASR_obj: ', altLASR_obj_mult)
 
-
-                    # approx_obj, approx_soln, approx_elapsed, approx_num_tap = brute_force(
-                    #     net_after, after_eq_tstt, before_eq_tstt, is_approx=True,
-                    #     mc_weights=mc_weights)
-                    # approx_num_tap += preprocessing_num_tap
-                    # print('Approx obj: {}, approx path: {}'.format(approx_obj, approx_soln))
                     memory = deepcopy(memory1)
 
 
                 if mip==3:
                     memory1 = deepcopy(memory)
                     preprocess_st = time.time()
-                    alt2_Z_bar, preprocessing_num_tap = alt2_preprocess(damaged_links, net_after,
+                    deltaTSTT, preprocessing_num_tap = find_deltaTSTT(damaged_links, net_after,
                         after_eq_tstt, before_eq_tstt, last_b, first_b)
                     preprocess_elapsed = time.time() - preprocess_st
-                    time_mip_before = preprocess_elapsed + time_net_before + 2*bb_time
+                    time_mip_before = preprocess_elapsed + time_net_before + bb_time*2
 
                     # MIP alternate formulation using estimated deltaTSTT[t,b] values
                     mip3_obj, mip3_soln, mip3_elapsed, mip3_num_tap = mip_delta(
-                        net_before, after_eq_tstt, before_eq_tstt, time_mip_before, alt2_Z_bar)
+                        net_before, after_eq_tstt, before_eq_tstt, time_mip_before, deltaTSTT)
                     mip3_num_tap += preprocessing_num_tap
                     if alt_crews == None and not multiclass:
                         print('MIP_delta_obj: ', mip3_obj)
@@ -4045,8 +2707,19 @@ if __name__ == '__main__':
 
                     if not os.path.exists(fname + extension):
                         search_start = time.time()
-                        (algo_path, algo_obj, search_tap_solved, tot_child, uncommon_number,
-                            common_number, __) = search(start_node, end_node, bfs)
+                        if graphing:
+                            (algo_path, algo_obj, search_tap_solved, tot_child, uncommon_number,
+                                common_number, __, wb, bb, wb_update, bb_update, memory) = search(
+                                NETFILE, TRIPFILE, net_after, after_eq_tstt, before_eq_tstt,
+                                start_node, end_node, bfs, wb, bb, wb_update, bb_update, memory,
+                                mc_weights=mc_weights, demand_mult=demand_mult, graphing=graphing,
+                                bs_time_list=bs_time_list, bs_OBJ_list=bs_OBJ_list)
+                        else:
+                            (algo_path, algo_obj, search_tap_solved, tot_child, uncommon_number,
+                                common_number, __, wb, bb, wb_update, bb_update, memory) = search(
+                                NETFILE, TRIPFILE, net_after, after_eq_tstt, before_eq_tstt,
+                                start_node, end_node, bfs, wb, bb, wb_update, bb_update, memory,
+                                mc_weights=mc_weights, demand_mult=demand_mult)
                         search_elapsed = (time.time() - search_start + greedy_elapsed
                                           + importance_elapsed + 2*evaluation_time)
 
@@ -4141,22 +2814,28 @@ if __name__ == '__main__':
                                                   + 2*(num_broken-1))
 
                             search_start = time.time()
-                            start_node, end_node = get_se_nodes(damaged_links, after_eq_tstt,
+                            start_node, end_node = get_se_nodes(damaged_dict, after_eq_tstt,
                                 before_eq_tstt, relax=True)
-                            (r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr,
-                                uncommon_numberr, common_numberr, num_purger) = search(
-                                start_node, end_node, bfs, beam_search=beam_search, beam_k=k,
-                                beta=beta, gamma=gamma)
+                            if graphing:
+                                (r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr,
+                                    uncommon_numberr, common_numberr, num_purger, wb, bb,
+                                    wb_update, bb_update, memory) = search(net_after,
+                                    after_eq_tstt, before_eq_tstt, start_node, end_node, bfs,
+                                    wb, bb, wb_update, bb_update, memory, beam_search=
+                                    beam_search, beam_k=k, beta=beta, gamma=gamma, graphing=
+                                    graphing, bs_time_list=bs_time_list, bs_OBJ_list=bs_OBJ_list)
+                            else:
+                                (r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr,
+                                    uncommon_numberr, common_numberr, num_purger, wb, bb,
+                                    wb_update, bb_update, memory) = search(net_after,
+                                    after_eq_tstt, before_eq_tstt, start_node, end_node, bfs,
+                                    wb, bb, wb_update, bb_update, memory, beam_search=
+                                    beam_search, beam_k=k, beta=beta, gamma=gamma)
                             search_elapsed = time.time() - search_start
 
                             if graphing:
                                 bs_time_list.append(search_elapsed)
                                 bs_OBJ_list.append(r_algo_obj)
-
-                            #net_after, after_eq_tstt = state_after(damaged_links, save_dir,
-                            #    real=True)
-                            #net_before, before_eq_tstt = state_before(damaged_links, save_dir,
-                            #    real=True)
 
                             first_net = deepcopy(net_after)
                             first_net.relax = False
@@ -4249,9 +2928,12 @@ if __name__ == '__main__':
                     if opt==2:
                         t.add_row(['ML BF', opt_obj_mc, opt_elapsed, opt_num_tap])
                     if approx:
-                        t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
-                        t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
-                        #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
+                        if approx>=2 or (approx==1 and LAFO_obj_mc[0]<LASR_obj_mc[0]):
+                            t.add_row(['approx-LAFO', LAFO_obj_mc, LAFO_elapsed, LAFO_num_tap])
+                        if approx>=2 or (approx==1 and LAFO_obj_mc[0]>=LASR_obj_mc[0]):
+                            t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
+                        if approx==3:
+                            t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
                     if mip==3:
                         t.add_row(['MIP_delta', mip3_obj_mc, mip3_elapsed, mip3_num_tap])
                     if full:
@@ -4284,9 +2966,12 @@ if __name__ == '__main__':
                     if opt==2:
                         t.add_row(['ML BF', opt_obj, opt_elapsed, opt_num_tap])
                     if approx:
-                        t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
-                        t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
-                        #t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
+                        if approx>=2 or (approx==1 and LAFO_obj<LASR_obj):
+                            t.add_row(['approx-LAFO', LAFO_obj, LAFO_elapsed, LAFO_num_tap])
+                        if approx>=2 or (approx==1 and LAFO_obj>=LASR_obj):
+                            t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
+                        if approx==3:
+                            t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
                     if mip==3:
                         t.add_row(['MIP_delta', mip3_obj, mip3_elapsed, mip3_num_tap])
                     if full:
@@ -4348,9 +3033,12 @@ if __name__ == '__main__':
                                     t.add_row(['ML BF '+str(alt_crews[num-1]), opt_obj_mult[num],
                                         opt_elapsed_mult[num], opt_num_tap])
                     if approx:
-                        t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
-                        t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
-                        #t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
+                        if approx>=2 or (approx==1 and LAFO_obj_mult[0]<LASR_obj_mult[0]):
+                            t.add_row(['approx-LAFO', LAFO_obj_mult, LAFO_elapsed, LAFO_num_tap])
+                        if approx>=2 or (approx==1 and LAFO_obj_mult[0]>=LASR_obj_mult[0]):
+                            t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
+                        if approx==3:
+                            t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
                     if mip==3:
                         t.add_row(['MIP_delta', mip3_obj_mult, mip3_elapsed, mip3_num_tap])
                     if full:
@@ -4390,8 +3078,9 @@ if __name__ == '__main__':
                     print('---------------------------')
                     print('approx-LASR: ', LASR_soln)
                     print('---------------------------')
-                    #print('alt-LASR: ', altLASR_soln)
-                    #print('---------------------------')
+                    if approx==3:
+                        print('alt-LASR: ', altLASR_soln)
+                        print('---------------------------')
                 if mip==3:
                     print('MIP_delta: ', mip3_soln)
                     print('---------------------------')
@@ -4439,7 +3128,8 @@ if __name__ == '__main__':
                 if approx:
                     temp_dict['header'].append('LAFO')
                     temp_dict['header'].append('LASR')
-                    #temp_dict['header'].append('altLASR')
+                    if approx==3:
+                        temp_dict['header'].append('altLASR')
                 if mip==3:
                     temp_dict['header'].append('MIP_delta')
                 if full:
@@ -4467,8 +3157,9 @@ if __name__ == '__main__':
                         damaged_seqs[link].append(el+1)
                         el = LASR_soln.index(link)
                         damaged_seqs[link].append(el+1)
-                        #el = altLASR_soln.index(link)
-                        #damaged_seqs[link].append(el+1)
+                        if approx==3:
+                            el = altLASR_soln.index(link)
+                            damaged_seqs[link].append(el+1)
                     if mip==3:
                         el = mip3_soln.index(link)
                         damaged_seqs[link].append(el+1)
@@ -4530,7 +3221,8 @@ if __name__ == '__main__':
             if approx:
                 LAFO_soln_ineq = load(damaged_dict_preset + '/' + 'LAFO_bound_path')
                 LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
-                #altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
+                if approx==3:
+                    altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
             if mip==3:
                 mip3_soln_ineq = load(damaged_dict_preset + '/' + 'mip_delta_path')
             if opt==1:
@@ -4560,8 +3252,9 @@ if __name__ == '__main__':
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
                 LASR_obj_ineq, __, __ = eval_sequence(net_after, LASR_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
-                #altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
-                #    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                if approx==3:
+                    altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
+                        before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
             if mip==3:
                 mip3_obj_ineq, __, __ = eval_sequence(net_after, mip3_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
@@ -4610,8 +3303,9 @@ if __name__ == '__main__':
                     LAFO_obj_ineq)])
                 t.add_row(['approx-LASR', LASR_obj_mc, LASR_obj_ineq], percentChange(LASR_obj_mc,
                     LASR_obj_ineq))
-                #t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
-                #    altLASR_obj_ineq))
+                if approx==3:
+                    t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
+                        altLASR_obj_ineq))
             if mip==3:
                 t.add_row(['MIP_delta', mip3_obj_mc, mip3_obj_ineq], percentChange(mip3_obj_mc,
                     mip3_obj_ineq))
