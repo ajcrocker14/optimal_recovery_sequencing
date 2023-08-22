@@ -76,6 +76,14 @@ def percentChange(a,b):
     return np.round(res,3)
 
 
+def int_to_state(c, N):
+    """returns z vector binary representation given integer representation where c
+    is the integer and N is the number of broken links"""
+    temp = np.binary_repr(c, width=N)
+    z = np.array([int(s) for s in temp])
+    return z
+
+
 def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
     """helper function for sorting/reversing lists"""
     bang4buck = np.array(benefits) / np.array(days)

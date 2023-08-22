@@ -1110,8 +1110,9 @@ def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, deltaTSTT)
     fname = net_before.save_dir + '/mip_delta'
     if not os.path.exists(fname + extension):
         mip_net = deepcopy(net_before)
-        N = len(damaged_links)
-        delta = deltaTSTT
+        N = len(damaged_dict)
+        delta = deltaTSTT # [pos,link]
+        D = np.array(list(damaged_dict.values()))
 
         # create model and add vars and constraints
         m = gp.Model('mip_delta')
@@ -1119,10 +1120,10 @@ def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, deltaTSTT)
         m.addConstrs((y[i,:].sum()==1 for i in range(N)), 'stages')
         m.addConstrs((y[:,i].sum()==1 for i in range(N)), 'links')
 
-        obj = y[0,:] @ delta @ y[1,:].T
+        obj = (y[0,:] @ delta[0,:]) * (y[1,:].T @ D)
         for i in range(2,N):
             for j in range(i):
-                obj += y[j,:] @ delta @ y[i,:].T
+                obj += (y[j,:] @ delta[j,:]) * (y[i,:].T @ D)
         m.setObjective(obj, GRB.MAXIMIZE)
 
         # optimize and print solution
@@ -1131,7 +1132,7 @@ def mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_before, deltaTSTT)
             y_sol = y.getAttr('X')
             path = []
             for i in range(N):
-                path.append(list(damaged_links)[int(y_sol[i].nonzero()[0])])
+                path.append(list(damaged_dict.keys())[int(np.argmax(y_sol[i]))])
             print('path found using Gurobi: ' + str(path))
         else:
             print('Gurobi solver status not optimal...')
@@ -1327,6 +1328,82 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_c
         elapsed = load(fname + '_elapsed')
 
     return min_cost, min_seq, elapsed, tap_solved
+
+
+def mip_bf(mip, net_before, after_eq_tstt, before_eq_tstt, time_before, vecTSTT):
+    """uses TSTT values for every state (calc or est) to build single level IP
+    and solve using gurobi; vecTSTT is a vector of length 2^N with TSTTs
+    encoded from z-vectors where vecTSTT[0] is the TSTT for z=[0,...,0] and
+    vecTSTT[2^N-1] is the TSTT for z=[1,...1] with num_broken=N; mip=1 uses
+    actual TSTT values to find optimal sequence, mip=2 uses ML TSTT values"""
+    import gurobipy as gp
+    from gurobipy import GRB
+    start = time.time()
+    tap_solved = 0
+
+    if mip==1:
+        fname = net_before.save_dir + '/mip_OPT'
+    elif mip==2:
+        fname = net_before.save_dir + '/mip_ML'
+    if not os.path.exists(fname + extension):
+        mip_net = deepcopy(net_before)
+        N = len(damaged_dict)
+        valstemp = vecTSTT - before_eq_tstt
+        vals = valstemp/valstemp[0]
+        Dtemp = np.array(list(damaged_dict.values()))
+        D = Dtemp/sum(Dtemp)
+
+        # create model and add vars and constraints
+        m = gp.Model('mip_TSTT')
+        y = m.addMVar(shape=(N,N),vtype=GRB.BINARY) # [stage,link]
+        z = m.addMVar(shape=(N,N),vtype=GRB.BINARY) # [stage,link]
+        ze = m.addMVar(shape=(N,2**N),vtype=GRB.BINARY) # [stage,state]
+        #temp = (2,)*N # build shape for zi, where dims are links, and vals are repair state
+        zi = m.addMVar(shape=temp,vtype=GRB.BINARY)
+        m.addConstrs((y[t,:].sum()==1 for t in range(N)), 'stages')
+        m.addConstrs((y[:,b].sum()==1 for b in range(N)), 'links')
+        m.addConstrs((z[0,b]==0 for b in range(N)), 'state0')
+        m.addConstrs((y[0:t,b].sum()==z[t,b] for t in range(1,N) for b in range(N)), 'states')
+        m.addConstrs(((ze[t,s]==1) >> (sum(z[t,b]*2**(N-1-b) for b in range(N))==s)
+                      for t in range(N) for s in range(2**N)),'expstates')
+        m.addConstrs((ze[t,:].sum()==1 for t in range(N)), 'extra')
+        #m.addConstrs((zi[] for ), 'expstates')
+
+        #print(ze[0,:] @ vals[:])
+        #print(y[0,:].T @ D)
+        #print((ze[0,:] @ vals[:]) * (y[0,:].T @ D))
+        obj = (ze[0,:] @ vals[:]) * (y[0,:].T @ D)
+        for t in range(1,N):
+            obj += ze[t,:] @ vals[:] * (y[t,:].T @ D)
+        m.setObjective(obj, GRB.MINIMIZE)
+
+        # optimize and print solution
+        m.optimize()
+        if m.Status == GRB.OPTIMAL:
+            y_sol = y.getAttr('X')
+            path = []
+            for i in range(N):
+                print(y_sol[i])
+                path.append(list(damaged_dict.keys())[int(np.argmax(y_sol[i]))])
+            print('path found using Gurobi: ' + str(path))
+        else:
+            print('Gurobi solver status not optimal...')
+
+        elapsed = time.time() - start + time_before
+        bound, eval_taps, __ = eval_sequence(
+            mip_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', path)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', 0)
+    else:
+        bound = load(fname + '_obj')
+        path = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return bound, path, elapsed, tap_solved
 
 
 def lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, first_b, bb_time):
@@ -2259,7 +2336,7 @@ if __name__ == '__main__':
 
 
             # Finalize damaged links
-            damaged_links = damaged_dict.keys()
+            damaged_links = list(damaged_dict.keys())
 
             print('damaged_dict: ', damaged_dict)
             save_dir = ULT_SCENARIO_REP_DIR
@@ -2294,8 +2371,8 @@ if __name__ == '__main__':
                 last_b = last_benefit(net_after, damaged_links, after_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
                 if num_crews==1:
-                    upper_bound = (after_eq_tstt - before_eq_tstt)
-                                   * sum(net_before.damaged_dict.values())
+                    upper_bound = (after_eq_tstt - before_eq_tstt) * sum(
+                        net_before.damaged_dict.values())
                 save(save_dir + '/upper_bound', upper_bound)
 
                 if damaged_dict_preset=='':
@@ -2355,8 +2432,8 @@ if __name__ == '__main__':
                 last_b = last_benefit(net_after, damaged_links, after_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
                 if num_crews==1:
-                    upper_bound = (after_eq_tstt - before_eq_tstt)
-                                   * sum(net_before.damaged_dict.values())
+                    upper_bound = (after_eq_tstt - before_eq_tstt) * sum(
+                        net_before.damaged_dict.values())
                 save(save_dir + '/upper_bound', upper_bound)
 
                 if damaged_dict_preset=='':
@@ -2365,6 +2442,7 @@ if __name__ == '__main__':
                       before_eq_tstt, after_eq_tstt, sum(damaged_dict.values())))
                 if num_crews==1:
                     print('Simple upper bound on obj function (total travel delay): ', upper_bound)
+
 
                 # Approx solution methods
                 if approx:
@@ -2440,6 +2518,95 @@ if __name__ == '__main__':
                             print('altLASR_obj: ', altLASR_obj_mult)
 
                     memory = deepcopy(memory1)
+
+
+                if mip==1:
+                    TSTT_start = time.time()
+                    TSTT_num_tap = len(memory)
+                    vecTSTT = np.zeros(2**num_broken)
+                    for k, v in memory.items():
+                        pattern = np.ones(len(damaged_links),dtype=int)
+                        state = [damaged_links.index(i) for i in k]
+                        pattern[(state)] = 0
+                        num = int("".join(str(x) for x in pattern),2)
+                        vecTSTT[num] = v
+                    test_net = deepcopy(net_after)
+                    for i in range(len(vecTSTT)):
+                        if vecTSTT[i]==0:
+                            not_fixed = []
+                            pattern = int_to_state(i, num_broken)
+                            for el in range(len(pattern)):
+                                if not pattern[el]:
+                                    not_fixed.append(damaged_links[el])
+                            test_net.not_fixed = not_fixed
+                            vecTSTT[i] = solve_UE(net=test_net, eval_seq=True)
+                            TSTT_num_tap += 1
+                    TSTTs_time = time.time() - TSTT_start
+                    print('Time to find all TSTTs: '+str(TSTTs_time))
+
+                    # MIP formulation using calculated TSTT values from TAP
+                    mip1_obj, mip1_soln, mip1_elapsed, mip1_num_tap = mip_bf(mip,
+                        net_before, after_eq_tstt, before_eq_tstt, TSTTs_time, vecTSTT)
+                    mip1_num_tap += TSTT_num_tap
+                    if alt_crews == None and not multiclass:
+                        print('MIP_OPT_obj: ', mip1_obj)
+                    elif multiclass and isinstance(net_after.tripfile, list):
+                        test_net = deepcopy(net_after)
+                        mip1_obj_mc, __, __ = eval_sequence(test_net, mip1_soln, after_eq_tstt,
+                            before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                        print('MIP_OPT_obj: ', mip1_obj_mc)
+                    else:
+                        mip1_obj_mult = [0]*(len(alt_crews)+1)
+                        mip1_obj_mult[0] = mip1_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_before)
+                            mip1_obj_mult[num+1], __, __ = eval_sequence(test_net, mip2_soln,
+                                after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                        print('MIP_OPT_obj: ', mip1_obj_mult)
+
+
+                if mip==2:
+                    ML_mem = {}
+                    ML_start = time.time()
+                    model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
+                        damaged_links, net_after)
+                    approx_params = (model, meany, stdy)
+                    ML_time = time.time() - ML_start
+                    print('Time to train ML model: '+str(ML_time))
+
+                    vecTSTT = np.zeros(2**num_broken)
+                    for i in range(len(vecTSTT)):
+                        pattern = int_to_state(i, num_broken)
+                        vecTSTT[i] = (approx_params[0].predict(pattern.reshape(1, -1),
+                                      verbose=0) * approx_params[2] + approx_params[1])[0][0]
+                    for k, v in memory.items():
+                        pattern = np.ones(len(damaged_links),dtype=int)
+                        state = [damaged_links.index(i) for i in k]
+                        pattern[(state)] = 0
+                        num = int("".join(str(x) for x in pattern),2)
+                        vecTSTT[num] = v
+                    ML_TSTTs_time = time.time() - ML_start
+                    print('Time to find all ML TSTTs after training: '+str(ML_TSTTs_time - ML_time))
+
+                    # MIP formulation using ML TSTT values
+                    mip2_obj, mip2_soln, mip2_elapsed, mip2_num_tap = mip_bf(mip,
+                        net_before, after_eq_tstt, before_eq_tstt, ML_TSTTs_time, vecTSTT)
+                    mip2_num_tap += ML_num_tap
+                    if alt_crews == None and not multiclass:
+                        print('MIP_ML_obj: ', mip2_obj)
+                    elif multiclass and isinstance(net_after.tripfile, list):
+                        test_net = deepcopy(net_after)
+                        mip2_obj_mc, __, __ = eval_sequence(test_net, mip2_soln, after_eq_tstt,
+                            before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                        print('MIP_ML_obj: ', mip2_obj_mc)
+                    else:
+                        mip2_obj_mult = [0]*(len(alt_crews)+1)
+                        mip2_obj_mult[0] = mip2_obj
+                        for num in range(len(alt_crews)):
+                            test_net = deepcopy(net_before)
+                            mip2_obj_mult[num+1], __, __ = eval_sequence(test_net, mip2_soln,
+                                after_eq_tstt, before_eq_tstt, num_crews=alt_crews[num])
+                        print('MIP_ML_obj: ', mip2_obj_mult)
 
 
                 if mip==3:
@@ -2609,13 +2776,14 @@ if __name__ == '__main__':
                         is_approx = False
                     if opt==2:
                         is_approx = True
-                        ML_mem = {}
-                        ML_start = time.time()
-                        model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
-                            damaged_links, net_after)
-                        approx_params = (model, meany, stdy)
-                        ML_time = time.time() - ML_start
-                        print('Time to train ML model: '+str(ML_time))
+                        if mip!=2:
+                            ML_mem = {}
+                            ML_start = time.time()
+                            model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
+                                damaged_links, net_after)
+                            approx_params = (model, meany, stdy)
+                            ML_time = time.time() - ML_start
+                            print('Time to train ML model: '+str(ML_time))
                     opt_obj, opt_soln, opt_elapsed, opt_num_tap = brute_force(
                         net_after, after_eq_tstt, before_eq_tstt, is_approx=is_approx, num_crews=num_crews)
                     if opt==1:
@@ -2934,6 +3102,10 @@ if __name__ == '__main__':
                             t.add_row(['approx-LASR', LASR_obj_mc, LASR_elapsed, LASR_num_tap])
                         if approx==3:
                             t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_elapsed, altLASR_num_tap])
+                    if mip==1:
+                        t.add_row(['MIP_OPT', mip1_obj_mc, mip1_elapsed, mip1_num_tap])
+                    if mip==2:
+                        t.add_row(['MIP_ML', mip2_obj_mc, mip2_elapsed, mip2_num_tap])
                     if mip==3:
                         t.add_row(['MIP_delta', mip3_obj_mc, mip3_elapsed, mip3_num_tap])
                     if full:
@@ -2972,6 +3144,10 @@ if __name__ == '__main__':
                             t.add_row(['approx-LASR', LASR_obj, LASR_elapsed, LASR_num_tap])
                         if approx==3:
                             t.add_row(['alt-LASR', altLASR_obj, altLASR_elapsed, altLASR_num_tap])
+                    if mip==1:
+                        t.add_row(['MIP_OPT', mip1_obj, mip1_elapsed, mip1_num_tap])
+                    if mip==2:
+                        t.add_row(['MIP_ML', mip2_obj, mip2_elapsed, mip2_num_tap])
                     if mip==3:
                         t.add_row(['MIP_delta', mip3_obj, mip3_elapsed, mip3_num_tap])
                     if full:
@@ -3039,6 +3215,10 @@ if __name__ == '__main__':
                             t.add_row(['approx-LASR', LASR_obj_mult, LASR_elapsed, LASR_num_tap])
                         if approx==3:
                             t.add_row(['alt-LASR', altLASR_obj_mult, altLASR_elapsed, altLASR_num_tap])
+                    if mip==1:
+                        t.add_row(['MIP_OPT', mip1_obj_mult, mip1_elapsed, mip1_num_tap])
+                    if mip==2:
+                        t.add_row(['MIP_ML', mip2_obj_mult, mip2_elapsed, mip2_num_tap])
                     if mip==3:
                         t.add_row(['MIP_delta', mip3_obj_mult, mip3_elapsed, mip3_num_tap])
                     if full:
@@ -3081,6 +3261,12 @@ if __name__ == '__main__':
                     if approx==3:
                         print('alt-LASR: ', altLASR_soln)
                         print('---------------------------')
+                if mip==1:
+                    print('MIP_OPT: ', mip1_soln)
+                    print('---------------------------')
+                if mip==2:
+                    print('MIP_ML: ', mip2_soln)
+                    print('---------------------------')
                 if mip==3:
                     print('MIP_delta: ', mip3_soln)
                     print('---------------------------')
@@ -3130,6 +3316,10 @@ if __name__ == '__main__':
                     temp_dict['header'].append('LASR')
                     if approx==3:
                         temp_dict['header'].append('altLASR')
+                if mip==1:
+                    temp_dict['header'].append('MIP_OPT')
+                if mip==2:
+                    temp_dict['header'].append('MIP_ML')
                 if mip==3:
                     temp_dict['header'].append('MIP_delta')
                 if full:
@@ -3160,6 +3350,12 @@ if __name__ == '__main__':
                         if approx==3:
                             el = altLASR_soln.index(link)
                             damaged_seqs[link].append(el+1)
+                    if mip==1:
+                        el = mip1_soln.index(link)
+                        damaged_seqs[link].append(el+1)
+                    if mip==2:
+                        el = mip2_soln.index(link)
+                        damaged_seqs[link].append(el+1)
                     if mip==3:
                         el = mip3_soln.index(link)
                         damaged_seqs[link].append(el+1)
@@ -3223,6 +3419,10 @@ if __name__ == '__main__':
                 LASR_soln_ineq = load(damaged_dict_preset + '/' + 'LASR_bound_path')
                 if approx==3:
                     altLASR_soln_ineq = load(damaged_dict_preset + '/' + 'altLASR_bound_path')
+            if mip==1:
+                mip1_soln_ineq = load(damaged_dict_preset + '/' + 'mip_OPT_path')
+            if mip==2:
+                mip2_soln_ineq = load(damaged_dict_preset + '/' + 'mip_ML_path')
             if mip==3:
                 mip3_soln_ineq = load(damaged_dict_preset + '/' + 'mip_delta_path')
             if opt==1:
@@ -3255,6 +3455,12 @@ if __name__ == '__main__':
                 if approx==3:
                     altLASR_obj_ineq, __, __ = eval_sequence(net_after, altLASR_soln_ineq, after_eq_tstt,
                         before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+            if mip==1:
+                mip1_obj_ineq, __, __ = eval_sequence(net_after, mip1_soln_ineq, after_eq_tstt,
+                    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+            if mip==2:
+                mip2_obj_ineq, __, __ = eval_sequence(net_after, mip2_soln_ineq, after_eq_tstt,
+                    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
             if mip==3:
                 mip3_obj_ineq, __, __ = eval_sequence(net_after, mip3_soln_ineq, after_eq_tstt,
                     before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
@@ -3306,6 +3512,12 @@ if __name__ == '__main__':
                 if approx==3:
                     t.add_row(['alt-LASR', altLASR_obj_mc, altLASR_obj_ineq], percentChange(altLASR_obj_mc,
                         altLASR_obj_ineq))
+            if mip==1:
+                t.add_row(['MIP_OPT', mip1_obj_mc, mip1_obj_ineq], percentChange(mip1_obj_mc,
+                    mip1_obj_ineq))
+            if mip==2:
+                t.add_row(['MIP_ML', mip2_obj_mc, mip2_obj_ineq], percentChange(mip2_obj_mc,
+                    mip2_obj_ineq))
             if mip==3:
                 t.add_row(['MIP_delta', mip3_obj_mc, mip3_obj_ineq], percentChange(mip3_obj_mc,
                     mip3_obj_ineq))
