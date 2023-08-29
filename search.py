@@ -155,7 +155,7 @@ def expand_sequence_f(node, a_link, level, net_after, wb, bb, wb_update, bb_upda
     if frozenset(net.not_fixed) in memory.keys():
         tstt_after = memory[frozenset(net.not_fixed)]
     else:
-        tstt_after = solve_UE(net=net, relax=node.relax)
+        tstt_after, __, __ = solve_UE(net=net, relax=node.relax)
         memory[frozenset(net.not_fixed)] = (tstt_after)
         solved = 1
 
@@ -191,7 +191,7 @@ def expand_sequence_b(node, a_link, level, net_after, wb, bb, wb_update, bb_upda
     if frozenset(net.not_fixed) in memory.keys():
         tstt_before = memory[frozenset(net.not_fixed)]
     else:
-        tstt_before = solve_UE(net=net, relax=node.relax)
+        tstt_before, __, __ = solve_UE(net=net, relax=node.relax)
         memory[frozenset(net.not_fixed)] = tstt_before
         solved = 1
 
@@ -993,7 +993,7 @@ def search(
                         not_fixed = set(eligible_to_add).difference(set(added))
                         test_net.not_fixed = set(not_fixed)
 
-                        after_fix_tstt = solve_UE(net=test_net)
+                        after_fix_tstt, __, __ = solve_UE(net=test_net)
                         diff = after_ - after_fix_tstt
                         new_bb[link] = diff
 
@@ -1026,7 +1026,7 @@ def search(
                     del decoy_dd[link_to_add]
 
                 net = deepcopy(net_after)
-                bound, __, __ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt,
+                bound, __, __, __ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt,
                     num_crews=num_crews)
 
                 if bound < bfs.cost:
@@ -1061,7 +1061,7 @@ def search(
                         not_fixed = set(eligible_to_add).difference(set(added))
                         test_net.not_fixed = set(not_fixed)
 
-                        after_fix_tstt = solve_UE(net=test_net)
+                        after_fix_tstt, __, __ = solve_UE(net=test_net)
                         diff = after_ - after_fix_tstt
                         new_bb[link] = diff
 
@@ -1097,7 +1097,7 @@ def search(
 
                 path.extend(minimum_bf_n.path[::-1])
                 net = deepcopy(net_after)
-                bound, __, __ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt,
+                bound, __, __, __ = eval_sequence(net, path, after_eq_tstt, before_eq_tstt,
                     num_crews=num_crews)
 
                 if bound < bfs.cost:

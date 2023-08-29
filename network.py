@@ -9,6 +9,8 @@ import utils
 
 import pdb
 import numpy as np
+from collections import defaultdict
+import heapq as heap
 import time
 
 FRANK_WOLFE_STEPSIZE_PRECISION = 1e-4
@@ -137,7 +139,8 @@ class Network:
                 targetFlows[key] + (1 - stepSize) * link.flow
             link.updateCost()
 
-    def FrankWolfeStepSize(self, targetFlows, precision=FRANK_WOLFE_STEPSIZE_PRECISION, rootfinding='NR'):
+    def FrankWolfeStepSize(self, targetFlows, precision=FRANK_WOLFE_STEPSIZE_PRECISION,
+                           rootfinding='NR'):
         """
         This method returns the step size lambda used by the Frank-Wolfe algorithm.
 
@@ -272,7 +275,7 @@ class Network:
         gapList = []
         iterationList = []
         timeList = []
-        
+
         st = time.time()
         initialFlows = self.allOrNothing()
         for ij in self.link:
@@ -563,91 +566,6 @@ class Network:
 
         return None
 
-
-
-
-    #     # def loadBush:
-
-
-    #     iters = 0
-    #     while gap > targetGap:
-    #         iters += 1 
-    #         for od in self.ODpair.values():
-    #             origin = od.origin
-    #             curnode = od.destination
-
-    #             if od.demand == 0:
-    #                 continue
-
-    #             (backlink, cost) = self.shortestPath(origin)
-    #             # (backlink, cost) = self.shortestPath(origin, od.destination, destonly=True)
-    #             # backnode, cost = self.a_star(origin, od.destination, destonly=True)
-    #             # backnode, cost = self.a_star(origin, od.destination, g[curnode])
-
-    #             curpath = []
-    #             curpath.append(curnode)
-
-    #             while curnode != origin:
-    #                 curnode = self.link[backlink[curnode]].tail
-    #                 # curnode = backnode[curnode]
-    #                 curpath.append(curnode)
-
-    #             curpath = curpath[::-1]
-    #             curpathStr = ','
-    #             for n in curpath:
-    #                 curpathStr += str(n) + ','
-
-    #             if str(curpath) not in od.pi_rs:
-    #                 pathTuple = utils.path2linkTuple(curpathStr)
-
-    #                 if len(od.pi_rs) == 0:
-    #                     self.path[str(curpath)] = Path(pathTuple, self, od.demand)
-    #                 else:
-    #                     self.path[str(curpath)] = Path(pathTuple, self, 0)
-
-    #                 od.pi_rs.append(str(curpath))
-
-    #             if len(od.pi_rs) > 1:
-    #                 minv = np.inf
-    #                 basic_p = None
-    #                 basic_v = None
-    #                 for k in od.pi_rs:
-    #                     v = self.path[k].cost
-    #                     if v <= minv:
-    #                         basic_p = k
-    #                         basic_v = v
-    #                         minv = v
-    #                 b_links = self.path[basic_p].links
-    #                 for k in od.pi_rs:
-    #                     if k != basic_p:
-    #                         v = self.path[k].cost
-    #                         diff = v-basic_v
-    #                         nb_links = self.path[k].links
-    #                         u = set(nb_links).union(set(b_links))
-    #                         i = set(nb_links).intersection(set(b_links))
-    #                         diff_links = tuple(u.difference(i))
-    #                         denom = 0
-    #                         for lnk in diff_links:
-    #                             denom += self.link[lnk].calculateCost_df() 
-
-    #                         shift = min(diff/denom, self.path[k].flow)
-    #                         self.path[k].flow -= shift
-    #                         self.path[basic_p].flow += shift
-                            
-    #                         ## delete unused paths
-    #                         if self.path[k].flow == 0:
-    #                             del self.path[k]
-    #                             od.pi_rs.remove(k)
-    #             self.loadPaths()
-
-    #         gap = gapFunction()
-    #         gapList.append(gap)
-    #         print("gap %f: time %f" % (gap, time.time()-st))
-
-
-
-    #     return gapList, time.time()-st
-
     def beckmannFunction(self):
         """
         This method evaluates the Beckmann function at the current link
@@ -755,7 +673,7 @@ class Network:
                     continue
                 if freeflow:
                     tempCost = cost[h] + self.link[hi].freeFlowTime
-                
+
                 else:
                     tempCost = cost[h] + self.link[hi].cost
                 if tempCost < cost[i]:
@@ -870,6 +788,32 @@ class Network:
         g[destination] = 0
         return g
 
+    def dijkstra(self, origin):
+        visited = set()
+        backlink = defaultdict(lambda: utils.NO_PATH_EXISTS)
+        cost = defaultdict(lambda: utils.INFINITY)
+        cost[origin] = 0
+        PriorityQueue = []
+        heap.heappush(PriorityQueue, (0, origin))
+
+        while PriorityQueue:
+            _, n = heap.heappop(PriorityQueue)
+            visited.add(n)
+
+            for l in self.node[n].forwardStar:
+                adjNode = self.link[l].head
+                if adjNode in visited:
+                    continue
+                weight = self.link[l].cost
+
+                newCost = cost[n] + weight
+                if cost[adjNode] > newCost:
+                    backlink[adjNode] = l
+                    cost[adjNode] = newCost
+                    heap.heappush(PriorityQueue, (newCost, adjNode))
+
+        return backlink, cost
+
     def allOrNothing(self):
         """
         This method generates an all-or-nothing assignment using the current link
@@ -881,7 +825,7 @@ class Network:
         keys are the link IDs.
 
         Be aware that the network files are in the TNTP format, where nodes are numbered
-        starting at 1, whereas Python starts numbering at 0.  
+        starting at 1, whereas Python starts numbering at 0.
 
         Your code will not be scored based on efficiency, but you should think about
         different ways of finding an all-or-nothing loading, and how this might
@@ -892,7 +836,7 @@ class Network:
             allOrNothing[ij] = 0
 
         for origin in range(1, self.numZones + 1):
-            (backlink, cost) = self.shortestPath(origin)
+            (backlink, cost) = self.dijkstra(origin)
             for OD in [OD for OD in self.ODpair if self.ODpair[OD].origin == origin]:
                 curnode = self.ODpair[OD].destination
                 while curnode != self.ODpair[OD].origin:
@@ -900,6 +844,12 @@ class Network:
                     curnode = self.link[backlink[curnode]].tail
 
         return allOrNothing
+
+    def findFreeFlowSPTT(self):
+        short = self.allOrNothing()
+        for ij in self.link:
+            SPTT += (short[ij]*self.link[ij].freeFlowTime)
+        return SPTT
 
     def findLeastEnteringLinks(self):
         """
@@ -1060,8 +1010,8 @@ class Network:
                         self.numZones = int(metadata['NUMBER OF ZONES'])
                     self.firstThroughNode = int(metadata['FIRST THRU NODE'])
                 except KeyError:  # KeyError
-                    print(
-                        "Warning: Not all metadata present, error checking will be limited and code will proceed as though all nodes are through nodes.")
+                    print("Warning: Not all metadata present, error checking will be limited and \
+                          code will proceed as though all nodes are through nodes.")
                 self.tollFactor = float(metadata.setdefault('TOLL FACTOR', 0))
                 self.distanceFactor = float(metadata.setdefault('DISTANCE FACTOR', 0))
 
@@ -1132,8 +1082,8 @@ class Network:
                         self.numZones = int(metadata['NUMBER OF ZONES'])
 
                 except KeyError:  # KeyError
-                    print(
-                        "Warning: Not all metadata present in demand file, error checking will be limited.")
+                    print("Warning: Not all metadata present in demand file, error checking will \
+                          be limited.")
 
                 for line in fileLines[metadata['END OF METADATA']:]:
                     # Ignore comments and blank lines
@@ -1222,15 +1172,15 @@ class Network:
                         self.classDemandCheck[c] = float(metadata['TOTAL OD FLOW'])
                         if self.numZones != None:
                             if self.numZones != int(metadata['NUMBER OF ZONES']):
-                                print(
-                                    "Error: Number of zones does not match in network/demand files.")
+                                print("Error: Number of zones does not match in network/demand \
+                                      files.")
                                 raise utils.BadFileFormatException
                         else:
                             self.numZones = int(metadata['NUMBER OF ZONES'])
 
                     except KeyError:  # KeyError
-                        print(
-                            "Warning: Not all metadata present in demand file, error checking will be limited.")
+                        print("Warning: Not all metadata present in demand file, error checking \
+                              will be limited.")
                     self.tollFactor[c] = float(metadata.setdefault('TOLL FACTOR', 0))
                     self.distanceFactor[c] = float(metadata.setdefault('DISTANCE FACTOR', 0))
 
@@ -1346,16 +1296,17 @@ class Network:
 
         # Now error-check using metadata
         if self.numNodes != None and len(self.node) != self.numNodes:
-            print("Warning: Number of nodes implied by network file %d different than metadata value %d" % (
-                len(self.node), self.numNodes))
+            print("Warning: Number of nodes implied by network file %d different than metadata \
+                  value %d" % (len(self.node), self.numNodes))
             self.numNodes = len(self.node)
         if self.numLinks != None and len(self.link) != self.numLinks:
-            print("Warning: Number of links given in network file %d different than metadata value %d" % (
-                len(self.link), self.numLinks))
+            print("Warning: Number of links given in network file %d different than metadata value \
+                  %d" % (len(self.link), self.numLinks))
             self.numLinks = len(self.link)
-        if self.numZones != None and len([i for i in self.node if self.node[i].isZone == True]) != self.numZones:
-            print("Warning: Number of zones given in network file %d different than metadata value %d" % (
-                len([i for i in self.node if self.node[i].isZone == True]), self.numZones))
+        if (self.numZones != None and
+                len([i for i in self.node if self.node[i].isZone == True]) != self.numZones):
+            print("Warning: Number of zones given in network file %d different than metadata value \
+                  %d" % (len([i for i in self.node if self.node[i].isZone == True]), self.numZones))
             self.numLinks = len(self.link)
         if self.totalDemandCheck != None:
             if self.totalDemand != self.totalDemandCheck:
