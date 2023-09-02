@@ -10,7 +10,7 @@ For testing and research, this project makes use of the Transportation Networks 
 
 ### Required dependencies
 
-Python3 with the following libraries: pandas, prettytable, numpy, progressbar, geopy. In order to run 'approx' option you would need tensorflow (requires WSL 2 not WSL 1 to use with cuda).
+Python3 with the following libraries: pandas, prettytable, numpy, progressbar, geopy. In order to run options using machine learning you would need tensorflow (requires WSL 2 not WSL 1 to use with cuda).
 
 If on Windows OS, you will need WSL and Ubuntu, or another method of operating in a Linux environment. If on Mac OS, you will also need a Linux environment to run the program as currently published.
 

@@ -1,7 +1,5 @@
-# use this file for beam search 'search' function, sub functions, and get_se_nodes
-
+# file contains beam search 'search' function and subfunctions
 from sequence_utils import *
-import time
 
 class sNode():
     """A node class for bi-directional search for pathfinding"""
@@ -1134,6 +1132,7 @@ def search(
         bs_time_list.append(time.time() - search_timer)
         bs_OBJ_list.append(deepcopy(bfs.cost))
 
+    print('Beam search objective value: ',bfs.cost)
     return (bfs.path, bfs.cost, num_tap_solved, tot_child, uncommon_number, common_number,
             num_purged, wb, bb, wb_update, bb_update, memory)
 
