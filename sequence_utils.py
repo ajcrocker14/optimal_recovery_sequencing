@@ -110,7 +110,7 @@ def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=Fa
         f2.write('<NETWORK FILE> ')
         f2.write('current_net.tntp')
         f2.write('\n')
-        if type(net.tripfile) == list:
+        if isinstance(net.tripfile,list):
             for item in net.tripfile:
                 f2.write('<TRIPS FILE> ')
                 f2.write(item)
@@ -125,7 +125,7 @@ def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=Fa
         f2.write('<MAX RUN TIME> ')
         f2.write(str(60))
         f2.write('\n')
-        if type(net.tripfile) == list:
+        if isinstance(net.tripfile, list):
             f2.write('<NUMBER OF THREADS> 1')
             f2.write('\n')
             f2.write('<NUMBER OF BATCHES> ')
@@ -222,7 +222,7 @@ def find_class_tstt(net, args, flows=False):
                     except:
                         try_again = True
 
-            if type(net.tripfile) == list:
+            if isinstance(net.tripfile, list):
                 num_classes = len(net.tripfile)
                 class_tstt = [0]*(num_classes)
                 with open(f, "r") as log_file:
@@ -233,11 +233,13 @@ def find_class_tstt(net, args, flows=False):
                     try:
                         class_tstt[i] = float(obj)
                     except:
-                        print('error encountered in find_class_tstt for demand class {}', i+1)
+                        print('Error encountered in find_class_tstt for demand class '
+                              + str(i+1))
                         return tstt
                 class_tstt.insert(0,tstt)
             else:
-                print('find_class_tstt function called with only one class of demand present')
+                print('Find_class_tstt function called with only one class of demand \
+                      present')
                 return tstt
 
             os.remove('full_log.txt')
@@ -323,8 +325,8 @@ def net_update(net, args, flows=False):
 def solve_UE(
         net=None, relax=False, eval_seq=False, flows=False, warm_start=True, rev=False,
         multiclass=False, initial=False):
-    """If type(mc_weights)==list, then finds TSTT for each class separately and weights to
-    find overall TSTT. If multiclass=True, then reports TSTT for each class separately"""
+    """If mc_weights is a list, then finds TSTT for each class separately and weights to
+    find overall TSTT. If multiclass, then reports TSTT for each class separately"""
     # modify the net.txt file to send to c code and create parameters file
     prep_st = time.time()
     try:
@@ -360,12 +362,14 @@ def solve_UE(
                 ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))
                          ].index.tolist()[0]
             except:
-                for col in df.columns:
-                    if pd.api.types.is_string_dtype(df[col]): # If cols contain str type, strip()
+                for col in df.columns: # If cols contain str type, strip()
+                    if pd.api.types.is_string_dtype(df[col]):
                         df[col] = df[col].str.strip()
                     else:
-                        try: df[col] = df[col].str.strip()
-                        except: pass
+                        try:
+                            df[col] = df[col].str.strip()
+                        except:
+                            pass
                 df = df.replace({"":np.nan}) # Replace any empty strings with nan
                 ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))
                          ].index.tolist()[0]
@@ -389,7 +393,7 @@ def solve_UE(
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
 
-    if multiclass or type(net.mc_weights)==list:
+    if multiclass or isinstance(net.mc_weights,list):
         try:
             class_tstt = find_class_tstt(net, args, flows)
         except:
@@ -399,7 +403,7 @@ def solve_UE(
             shutil.copy('current_params.txt', 'current_params_error.txt')
 
             temp = 1
-            if type(net.tripfile) == list:
+            if isinstance(net.tripfile, list):
                 temp = len(net.tripfile)
 
             if rev:
@@ -418,14 +422,15 @@ def solve_UE(
             shutil.copy('full_log.txt', 'full_log_error2.txt')
             class_tstt = find_class_tstt(net, args, flows)
 
-        if type(net.mc_weights)==list:
+        if isinstance(net.mc_weights, list):
             if len(net.mc_weights)==len(class_tstt)-1:
                 class_tstt[0] = 0
                 for i in range(len(net.mc_weights)):
                     class_tstt[0] += net.mc_weights[i]*class_tstt[i+1]
             else:
-                print('User has provided {} mc_weights, and there are {} classes of demand. \
-                      Returning UNWEIGHTED TSTT'.format(len(net.mc_weights),len(class_tstt)-1))
+                print('User has provided {} mc_weights, and there are {} classes of \
+                      demand. Returning UNWEIGHTED TSTT'.format(len(net.mc_weights),
+                                                                len(class_tstt)-1))
         if multiclass:
             prep_time = time.time() - prep_st - elapsed
             tap_time = elapsed
@@ -445,7 +450,7 @@ def solve_UE(
             shutil.copy('current_params.txt', 'current_params_error.txt')
 
             temp = 1
-            if type(net.tripfile) == list:
+            if isinstance(net.tripfile, list):
                 temp = len(net.tripfile)
 
             if rev:
@@ -521,6 +526,7 @@ def eval_sequence(
     """evaluates the total tstt for a repair sequence, does not write to memory
     if multiclass=True, then evaluates the total area for each class separately
     approx and multiclass cannot be active simultaneously"""
+    damaged_links = list(net.damaged_dict.keys())
     times = [0]*3 # eval combinations, prep for tap, eval taps
     tap_solved = 0
     days_list = []
@@ -542,7 +548,7 @@ def eval_sequence(
     crew_order_list, which_crew, days_list = gen_crew_order(
         order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
 
-    if multiclass and type(net.tripfile) == list:
+    if multiclass and isinstance(net.tripfile, list):
         net.not_fixed = set(to_visit)
         after_eq_tstt_mc, prep_time, tap_time = solve_UE(net=net, eval_seq=True,
             multiclass=multiclass)
@@ -561,7 +567,6 @@ def eval_sequence(
 
         if is_approx:
             prep_st = time.time()
-            damaged_links = list(damaged_dict.keys())
             state = list(set(damaged_links).difference(net.not_fixed))
             state = [damaged_links.index(i) for i in state]
             pattern = np.zeros(len(damaged_links))
@@ -585,11 +590,11 @@ def eval_sequence(
         if multiclass:
             for i in range(len(tstt_after)):
                 if (before_eq_tstt_mc[i] - tstt_after[i]) / before_eq_tstt_mc[i] > 0.01:
-                    print('tstt after repairing link {} is lower than tstt before eq by {} ({} percent) /
-                        for class {}'.format(str(link_id),
-                        round(before_eq_tstt_mc[i] - tstt_after[i], 2),
-                        round((before_eq_tstt_mc[i] - tstt_after[i])
-                              / before_eq_tstt_mc[i]*100, 5), i))
+                    print('tstt after repairing link {} is lower than tstt before eq \
+                          by {} ({} percent) for class {}'.format(str(link_id),
+                          round(before_eq_tstt_mc[i] - tstt_after[i], 2),
+                          round((before_eq_tstt_mc[i] - tstt_after[i])
+                                / before_eq_tstt_mc[i]*100, 5), i))
                     f = 'troubleflows'+str(i)+'.txt'
                     count = 0
                     while os.path.exists(f):
@@ -601,7 +606,7 @@ def eval_sequence(
             curfp += if_list[link_id]
             fp.append(curfp * 100)
 
-    if multiclass and type(net.tripfile) == list:
+    if multiclass and isinstance(net.tripfile, list):
         tot_area = [0]*(len(net.tripfile)+1)
         for j in range(len(net.tripfile)+1):
             for i in range(len(days_list)):
@@ -674,7 +679,8 @@ def calc_all_TSTT(net_after):
 
 
 def calc_all_ML(approx_params, damaged_links, memory):
-    """calculates ML estimation of TSTT for every possible repair state and saves as a vector"""
+    """calculates ML estimation of TSTT for every possible repair state and saves as
+    a vector"""
     N = len(damaged_links)
     ML_start = time.time()
     vecML = np.zeros(2**N)
@@ -697,14 +703,14 @@ def record_art_net(art_net):
     shutil.copy(art_net.netfile, 'art_net.tntp')
     if len(art_net.art_links) > 0:
         df = pd.read_csv('art_net.tntp', delimiter='\t', skipinitialspace=True)
-        for col in df.columns:
-            if pd.api.types.is_string_dtype(df[col]): # If cols contain str type, strip()
+        for col in df.columns: # If cols contain str type, strip()
+            if pd.api.types.is_string_dtype(df[col]):
                 df[col] = df[col].str.strip()
         df = df.replace({"":np.nan}) # Replace any empty strings with nan
         for link in art_net.art_links.keys():
-            df.loc[len(df.index)] = [np.nan,link[:link.find('-')], link[link.find('>')+1:],
-                SEQ_INFINITY, art_net.art_links[link], art_net.art_links[link], ALPHAff, BETAff,
-                0.0, 0.0, 1, ';']
+            df.loc[len(df.index)] = [np.nan,link[:link.find('-')],
+                link[link.find('>')+1:], SEQ_INFINITY, art_net.art_links[link],
+                art_net.art_links[link], ALPHAff, BETAff, 0.0, 0.0, 1, ';']
         if len(art_net.art_links) > 0:
             for i in range(1,10):
                 if df.iloc[i,0].find('NUMBER OF LINKS') >= 0:
@@ -726,7 +732,8 @@ def record_art_net(art_net):
 
 
 def record_ff_net(net_after):
-    """builds a net file with modified link attributes; sets alpha=1 and beta=0 for all links"""
+    """builds a net file with modified link attributes; sets alpha=1 and beta=0 for
+    all links"""
     if len(net_after.art_links) > 0:
         shutil.copy('art_net.tntp', 'ff_net.tntp')
     else:
@@ -734,27 +741,28 @@ def record_ff_net(net_after):
     df = pd.read_csv('ff_net.tntp', delimiter='\t', skipinitialspace=True)
     for i in df.index:
         try:
-            if type(df.loc[i][0])==float:
+            if isinstance(df.loc[i][0],float):
                 df.loc[i, 'Unnamed: 6'] = ALPHAff
                 df.loc[i, 'Unnamed: 7'] = BETAff
         except:
-            for col in df.columns:
-                if pd.api.types.is_string_dtype(df[col]): # If cols contain str type, strip()
+            for col in df.columns: # If cols contain str type, strip()
+                if pd.api.types.is_string_dtype(df[col]):
                     df[col] = df[col].str.strip()
             df = df.replace({"":np.nan}) # Replace any empty strings with nan
-            ind = df[(df['Unnamed: 1'] == str(home)) & (df['Unnamed: 2'] == str(to))
-                     ].index.tolist()[0]
+            if isinstance(df.loc[i][0],float):
+                df.loc[i, 'Unnamed: 6'] = ALPHAff
+                df.loc[i, 'Unnamed: 7'] = BETAff
     df.to_csv('ff_net.tntp', index=False, sep="\t")
 
 
 def get_marginal_tstts(net, path, after_eq_tstt, before_eq_tstt, multiclass=False):
     """function not currently used"""
-    __, __, tstt_list, __ = eval_sequence(deepcopy(net), path, after_eq_tstt, before_eq_tstt,
-        multiclass=multiclass)
+    __, __, tstt_list, __ = eval_sequence(deepcopy(net), path, after_eq_tstt,
+        before_eq_tstt, multiclass=multiclass)
 
     # tstt_list.insert(0, after_eq_tstt)
     days_list = []
     for link in path:
-        days_list.append(damaged_dict[link])
+        days_list.append(net.damaged_dict[link])
 
     return tstt_list, days_list

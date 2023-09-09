@@ -1,13 +1,12 @@
 from link import Link
 from node import Node
-from path import Path
+#from path import Path
 from od import OD
 
 import sys
 import traceback
 import utils
 
-import pdb
 import numpy as np
 from collections import defaultdict
 import heapq as heap
@@ -18,8 +17,8 @@ FRANK_WOLFE_STEPSIZE_PRECISION = 1e-4
 
 class BadNetworkOperationException(Exception):
     """
-    You can raise this exception if you try a network action which is invalid
-    (e.g., trying to find a topological order on a network with cycles.)
+    Raise this exception if you try a network action which is invalid (e.g., trying
+    to find a topological order on a network with cycles.)
     """
     pass
 
@@ -59,7 +58,7 @@ class Network:
         self.numZones = 0
         self.firstThroughNode = 0
 
-        if type(demandFile) == list:
+        if isinstance(demandFile,list):
             self.numClasses = len(demandFile)
         else:
             self.numClasses = 1
@@ -74,14 +73,9 @@ class Network:
 
     def relativeGap(self):
         """
-        This method should calculate the relative gap (as defined in the course text)
-        based on the current link flows, and return this value.
-
-        To do this, you will need to calculate both the total system travel time, and
-        the shortest path travel time (you will find it useful to call some of the
-        methods implemented in earlier assignments).
+        This method calculates the relative gap based on the current link flows,
+        and return this value.
         """
-        # raise utils.NotYetAttemptedException
         nom = 0
         denom = 0
 
@@ -97,14 +91,9 @@ class Network:
 
     def averageExcessCost(self):
         """
-        This method should calculate the average excess cost
-        based on the current link flows, and return this value.
-
-        To do this, you will need to calculate both the total system travel time, and
-        the shortest path travel time (you will find it useful to call some of the
-        methods implemented in earlier assignments).
+        This method calculates the average excess cost based on the current link
+        flows, and return this value.
         """
-        # raise utils.NotYetAttemptedException
         tx = 0
         kd = 0
         td = 0
@@ -122,199 +111,50 @@ class Network:
 
     def shiftFlows(self, targetFlows, stepSize):
         """
-        This method should update the flow on each link, by taking a weighted
-        average of the current link flows (self.link[ij].flow) and the flows
-        given in the targetFlows dictionary (targetFlows[ij]).  stepSize indicates
-        the weight to place on the target flows (so the weight on the current
-        flows is 1 - stepSize).
+        This method updates the flow on each link by taking a weighted average of the
+        current link flows (self.link[ij].flow) and the flows given in the targetFlows
+        dictionary (targetFlows[ij]). stepSize indicates the weight to place on the
+        target flows (so the weight on the current flows is 1 - stepSize).
 
-        *** IMPORTANT: After updating the flow on a link, you should call its
-        updateCost method, so that the travel time is updated to reflect
-        the new flow value. ***
-
-        This method does not need to return a value.
+        After updating the flow on a link, calls its updateCost method, so that the
+        travel time is updated to reflect the new flow value.
         """
         for key, link in self.link.items():
             link.flow = stepSize * \
                 targetFlows[key] + (1 - stepSize) * link.flow
             link.updateCost()
 
-    def FrankWolfeStepSize(self, targetFlows, precision=FRANK_WOLFE_STEPSIZE_PRECISION,
-                           rootfinding='NR'):
+    def FrankWolfeStepSize(self, targetFlows, precision=FRANK_WOLFE_STEPSIZE_PRECISION):
         """
         This method returns the step size lambda used by the Frank-Wolfe algorithm.
 
         The current link flows are given in the self.link[ij].flow attributes, and the
         target flows are given in the targetFlows dictionary.
-
-        The precision argument dictates how close your method needs to come to finding
-        the exact Frank-Wolfe step size: you are fine if the absolute difference
-        between the true value, and the value returned by your method, is less than
-        precision.
         """
-        # raise utils.NotYetAttemptedException
-        high = 1.0
-        low = 0
-        calc = 1e6
-        intervalEnd = False
-        # pdb.set_trace()
-        if rootfinding == 'bisection':
-
-            while abs(calc) >= precision and not intervalEnd:
-                lam = (high + low) / 2.0
-                calc = 0
-                for key, link in self.link.items():
-                    rflow = link.flow
-                    link.flow = lam * targetFlows[key] + (1 - lam) * link.flow
-                    cost = link.calculateCost()
-                    link.flow = rflow
-                    calc += cost * (targetFlows[key] - link.flow)
-
-                if calc > 0:
-                    high = lam
-                else:
-                    low = lam
-
-                if abs(lam) < 1e-6:
-                  lam = 0
-                  intervalEnd = True
-                elif lam > 1 - 1e-6:
-                  lam = 1
-                  intervalEnd = True
-
-        if rootfinding == 'NR':
-
-            lam = high
-
-            while abs(calc) > precision:
-
-                try:
-                    lam = lam - calc / calc_df
-                except:
-                    pass
-
-                calc = 0
-                calc_df = 0
-
-                for key, link in self.link.items():
-                    rflow = link.flow
-                    link.flow = lam * targetFlows[key] + (1 - lam) * link.flow
-                    cost = link.calculateCost()
-                    cost_df = link.calculateCost_df()
-                    link.flow = rflow
-                    calc += (cost * (targetFlows[key] - link.flow))
-                    calc_df += (cost_df * (targetFlows[key] - link.flow)**2)
-
-            # print(calc)
-            if abs(lam) < 1e-6:
-                lam = 0
-                # intervalEnd = True
-            elif lam > 1 - 1e-6:
-                lam = 1
-
-        return lam
-
-    def userEquilibrium_old(self, stepSizeRule='MSA',
-                        maxIterations=10,
-                        targetGap=1e-6,
-                        gapFunction=relativeGap):
-        """
-        This method uses the (link-based) convex combinations algorithm to solve
-        for user equilibrium.  Arguments are the following:
-           stepSizeRule -- a string specifying how the step size lambda is
-                           to be chosen.  Currently 'FW' and 'MSA' are the
-                           available choices, but you can implement more if you
-                           want.
-           maxIterations -- stop after this many iterations have been performed
-           targetGap     -- stop once the gap is below this level
-           gapFunction   -- pointer to the function used to calculate gap.  After
-                            finishing this assignment, you should be able to
-                            choose either relativeGap or averageExcessCost.
-        """
-        initialFlows = self.allOrNothing()
+        currentFlows = dict()
         for ij in self.link:
-            self.link[ij].flow = initialFlows[ij]
-            self.link[ij].updateCost()
-
-        iteration = 0
-        while iteration < maxIterations:
-            iteration += 1
-            gap = gapFunction(self)
-            #print("Iteration %d: gap %f" % (iteration, gap))
-            if gap < targetGap:
-                break
-            targetFlows = self.allOrNothing()
-            if stepSizeRule == 'FW':
-                stepSize = self.FrankWolfeStepSize(targetFlows)
-            elif stepSizeRule == 'MSA':
-                stepSize = 1 / (iteration + 1)
-            else:
-                raise BadNetworkOperationException(
-                    "Unknown step size rule " + str(stepSizeRule))
-            self.shiftFlows(targetFlows, stepSize)
-
-    def userEquilibriumTest(self, stepSizeRule='MSA',
-                            maxIterations=10,
-                            targetGap=1e-6,
-                            gapFunction=relativeGap,
-                            rootfinding='bisection',
-                            MSAstepSizeChoice='vanilla'):
-        """
-        This method uses the (link-based) convex combinations algorithm to solve
-        for user equilibrium.  Arguments are the following:
-           stepSizeRule -- a string specifying how the step size lambda is
-                           to be chosen.  Currently 'FW' and 'MSA' are the
-                           available choices, but you can implement more if you
-                           want.
-           maxIterations -- stop after this many iterations have been performed
-           targetGap     -- stop once the gap is below this level
-           gapFunction   -- pointer to the function used to calculate gap.  After
-                            finishing this assignment, you should be able to
-                            choose either relativeGap or averageExcessCost.
-        """
-        gapList = []
-        iterationList = []
-        timeList = []
-
-        st = time.time()
-        initialFlows = self.allOrNothing()
-        for ij in self.link:
-            self.link[ij].flow = initialFlows[ij]
-            self.link[ij].updateCost()
-        print('stepSizeRule', stepSizeRule)
-        if stepSizeRule == 'FW':
-            print('rootfinding', rootfinding)
-        else: 
-            print('MSAstepSizeChoice', MSAstepSizeChoice)
-        iteration = 0
-        while iteration < maxIterations:
-            iteration += 1
-            gap = gapFunction()
-            iterationList.append(iteration)
-            gapList.append(gap)
-            timeList.append(time.time() - st)
-            print("Iteration %d: gap %f: time %f" %
-                  (iteration, gap, time.time() - st))
-            if gap < targetGap:
-                break
-            targetFlows = self.allOrNothing()
-            if stepSizeRule == 'FW':
-                stepSize = self.FrankWolfeStepSize(
-                    targetFlows, rootfinding=rootfinding)
-            elif stepSizeRule == 'MSA':
-                if MSAstepSizeChoice == 'vanilla':
-                    stepSize = 1 / (iteration + 1)
-                if MSAstepSizeChoice == 'diff':
-                    # stepSize = 1 / (iteration**(2.0/3.0))
-                    stepSize = 1 / (iteration + 2)
-
-            else:
-                raise BadNetworkOperationException(
-                    "Unknown step size rule " + str(stepSizeRule))
-
-            self.shiftFlows(targetFlows, stepSize)
-
-        return iterationList, gapList, timeList
+            currentFlows[ij] = self.link[ij].flow
+        stepSize = 1/2
+        func = utils.INFINITY
+       
+        while func >= precision:
+            func = 0
+            funcPrime = 0
+            for ij in self.link: # overwrites link flow values temporarily
+                self.link[ij].flow = (stepSize*targetFlows[ij] + (1- stepSize)
+                                      * currentFlows[ij])
+                func += self.link[ij].calculateCost()*(targetFlows[ij]-currentFlows[ij])
+                funcPrime += (self.link[ij].calculateCostDerivative()
+                              * (targetFlows[ij]-currentFlows[ij])**2)   
+            stepSize -= func/funcPrime
+            if stepSize > 1:
+                stepSize = 1
+            elif stepSize < 0:
+                stepSize = 0
+      
+        for ij in self.link: # fix link flows to previous values
+            self.link[ij].flow = currentFlows[ij]
+        return stepSize
 
     def userEquilibrium(self, stepSizeRule='MSA',
                         maxIterations=10,
@@ -333,243 +173,37 @@ class Network:
                             finishing this assignment, you should be able to
                             choose either relativeGap or averageExcessCost.
         """
+        initialFlows = self.allOrNothing()
+        for ij in self.link:
+            self.link[ij].flow = initialFlows[ij]
+            self.link[ij].updateCost()
 
-        # gapList = []
-        gap = 1e6
-        st = time.time()
-
-        # g = {}
-        # destlist = []
-        # for od in self.ODpair.values():
-        #     destlist.append(od.destination)
-        # destlist = list(set(destlist))
-        # for dest in destlist:
-        #     g[dest] = self.find_g(dest)
-        # timeList = []
-        # iters = 0
-        while gap > targetGap:
-            # iters += 1 
-            for od in self.ODpair.values():
-                origin = od.origin
-                curnode = od.destination
-
-                if od.demand == 0:
-                    continue
-
-                (backlink, cost) = self.shortestPath(origin)
-                # (backlink, cost) = self.shortestPath(origin, od.destination, destonly=True)
-                # backnode, cost = self.a_star(origin, od.destination, destonly=True)
-                # backnode, cost = self.a_star(origin, od.destination, g[curnode])
-
-                curpath = []
-                curpath.append(curnode)
-
-                while curnode != origin:
-                    curnode = self.link[backlink[curnode]].tail
-                    # curnode = backnode[curnode]
-                    curpath.append(curnode)
-
-                curpath = curpath[::-1]
-                curpathStr = ','
-                for n in curpath:
-                    curpathStr += str(n) + ','
-
-                if str(curpath) not in od.pi_rs:
-                    pathTuple = utils.path2linkTuple(curpathStr)
-
-                    if len(od.pi_rs) == 0:
-                        self.path[str(curpath)] = Path(pathTuple, self, od.demand)
-                    else:
-                        self.path[str(curpath)] = Path(pathTuple, self, 0)
-
-                    od.pi_rs.append(str(curpath))
-
-                if len(od.pi_rs) > 1:
-                    minv = np.inf
-                    basic_p = None
-                    basic_v = None
-                    for k in od.pi_rs:
-                        v = self.path[k].cost
-                        if v <= minv:
-                            basic_p = k
-                            basic_v = v
-                            minv = v
-                    b_links = self.path[basic_p].links
-                    for k in od.pi_rs:
-                        if k != basic_p:
-                            v = self.path[k].cost
-                            diff = v-basic_v
-                            nb_links = self.path[k].links
-                            u = set(nb_links).union(set(b_links))
-                            i = set(nb_links).intersection(set(b_links))
-                            diff_links = tuple(u.difference(i))
-                            denom = 0
-                            for lnk in diff_links:
-                                denom += self.link[lnk].calculateCost_df() 
-
-                            shift = min(diff/denom, self.path[k].flow)
-                            self.path[k].flow -= shift
-                            self.path[basic_p].flow += shift
-                            
-                            ## delete unused paths
-                            if self.path[k].flow == 0:
-                                del self.path[k]
-                                od.pi_rs.remove(k)
-                self.loadPaths()
-
+        prec = list()
+        runtime = list()
+        start = time.time()
+        iteration = 0
+        while iteration < maxIterations:
+            iteration += 1
             gap = gapFunction()
-            # gapList.append(gap)
-            # timeList.append(time.time()-st)
-            print("gap %f: time %f" % (gap, time.time()-st))
-
-        # return gapList, timeList
-
-    def userEquilibriumImprovement2(self, stepSizeRule='MSA',
-                            maxIterations=10,
-                            targetGap=1e-6,
-                            gapFunction=relativeGap,
-                            rootfinding='bisection',
-                            MSAstepSizeChoice='vanilla'):
-        """
-        This method uses the (link-based) convex combinations algorithm to solve
-        for user equilibrium.  Arguments are the following:
-           stepSizeRule -- a string specifying how the step size lambda is
-                           to be chosen.  Currently 'FW' and 'MSA' are the
-                           available choices, but you can implement more if you
-                           want.
-           maxIterations -- stop after this many iterations have been performed
-           targetGap     -- stop once the gap is below this level
-           gapFunction   -- pointer to the function used to calculate gap.  After
-                            finishing this assignment, you should be able to
-                            choose either relativeGap or averageExcessCost.
-        """
-
-
-            # def find_g(self, destination):
-        #for everynode find sp to s
-        g = {}
-        for i in self.node:
-            if i != destination:
-                bnode, cost = self.shortestPath(ori, freeflow=True)
-                ### test a_star code with older hw assignment
-                g[i] = cost[destination]
-        g[destination] = 0
-        return g
-
-        gapList = []
-        gap = 1e6
-        st = time.time()
-
-        backlink_o = {} 
-        cost_o = {}
-
-        destlist = []
-        for od in self.ODpair.values():
-            orlist.append(od.origin)
-        orlist = list(set(orlist))
-        for ori in orlist:
-            backlink, cost = self.shortestPath(ori, freeflow=True)
-            backlink_o[ori] = backlink
-            cost_o[ori] = cost
-
-            curnode = od.destination
-            while curnode != origin:
-                curnode = self.link[backlink[curnode]].tail
-                curpath.append(curnode)
-
-            curpath = curpath[::-1]
-            curpathStr = ','
-            for n in curpath:
-                curpathStr += str(n) + ','
-
-            pathTuple = utils.path2linkTuple(curpathStr)
-            self.bush[ori] = Bush(pathTuple, ori, self, curpath)
-
-            self.bush[ori].findTopologicalOrder()
-
-            for topoNode in range(self.numNodes + 1, self.node[origin].order + 1):
-                if i == ori:
-                    break
-                i = self.topologicalList[topoNode]
-
-                maxorder = -np.inf
-                maxorderNode = None
-                for n in self.bush[ori].node:
-                    curorder = self.bush[ori].node[n].order
-                    if curorder > maxorder:
-                        maxorder = curorder
-                        maxorderNode = n
-
-                self.bush[ori].calculateBushLabels()
-                backlinkL = self.bush[ori].backlinkL[maxorderNode]
-                piL = []
-                curnode = maxorderNode
-                piL.append(curnode)
-
-                while curnode != ori:
-                    curnode = self.bush[ori].link[backlinkL[curnode]].tail
-                    piL.append(curnode)
-
-                backlinkU = self.bush[ori].backlinkU[maxorderNode]
-                piU = []
-                curnode = maxorderNode
-                piU.append(curnode)
-
-                while curnode != ori:
-                    curnode = self.bush[ori].link[backlinkU[curnode]].tail
-                    piU.append(curnode)
-
-                # lastcommonNode = None
-                # decoypiU = piU[::-1]
-                # decoypiL = piL[::-1]
-                # for j in range(1, len(decoypiL)):
-                #     if decoypiL[j] == decoypiU[j]:
-                #         lastcommonNode = decoypiL[j]
-                #         break
-
-                lastcommonNode = None
-                decoypiU = piU
-                decoypiL = piL
-                for j in range(1, len(decoypiL)):
-                    if decoypiL[j] == decoypiU[j]:
-                        lastcommonNode = decoypiL[j]
-                        break
-
-                piL = piL[::-1]
-                curpathStr = ','
-                for n in piL:
-                    curpathStr += str(n) + ','
-                piL = utils.path2linkTuple(curpathStr)
-
-                piU = piU[::-1]
-                curpathStr = ','
-                for n in piU:
-                    curpathStr += str(n) + ','
-                piU = utils.path2linkTuple(curpathStr)
-
-                nom = (self.bush[ori].U[i] - self.bush[ori].U[a]) - (self.bush[ori].L[i] - self.bush[ori].L[a])
-                denom = 0
-                cmn_links = list(set(piL).union(set(piU)))
-                for lnk in cmn_links:
-                    denom += self.link[lnk].calculateCost_df()
-
-                minUij = np.inf
-                for ij in piU:
-                    curflow = self.bush[ori].link[ij].flow
-                    if curflow < minUij:
-                        minUij = curflow
-
-                deltah = min(nom/denom, minUij)
-
-            updatealltijs
-
-
-        return None
+            #print("Iteration %d: gap %f" % (iteration, gap))
+            prec.append(gap)
+            runtime.append(time.time()-start)
+            if gap < targetGap:
+                break
+            targetFlows = self.allOrNothing()
+            if stepSizeRule == 'FW':
+                stepSize = self.FrankWolfeStepSize(targetFlows)
+            elif stepSizeRule == 'MSA':
+                stepSize = 1 / (iteration + 1)
+            else:
+                raise BadNetworkOperationException(
+                    "Unknown step size rule " + str(stepSizeRule))
+            self.shiftFlows(targetFlows, stepSize)
+        return prec, runtime
 
     def beckmannFunction(self):
         """
-        This method evaluates the Beckmann function at the current link
-        flows.
+        This method evaluates the Beckmann function at the current link flows.
         """
         beckmann = 0
         for ij in self.link:
@@ -579,32 +213,19 @@ class Network:
     def acyclicShortestPath(self, origin):
         """
         This method finds the shortest path in an acyclic network, from the stated
-        origin.  You can assume that a topological order has already been found,
-        and referred to in the 'order' attributes of network Nodes.  You can also
-        find a list of nodes in topological order in self.topologicalList.  (See the
-        method createTopologicalList below.)
+        origin. A topological order has already been found, and is referred to in the
+        'order' attributes of network Nodes. A list of nodes in topological order is in
+        self.topologicalList (method createTopologicalList below).
 
-        Use the 'cost' attribute of the Links to calculate travel times.  These values
-        are given -- do not try to recalculate them based on flows, BPR functions, etc.
+        Uses the 'cost' attribute of the Links to calculate travel times. These values
+        are given -- not recalculated based on flows, BPR functions, etc.
 
-        Be aware that both the order Node attribute and topologicalList respect the usual
+        Be aware that both the order Node attribute and topologicalList respect the
         convention in network modeling that the topological order starts at 1, whereas
-        Python starts numbering at 0.  
+        Python starts numbering at 0.
 
-        The implementation in the text uses a vector of backnode labels.  In this
-        assignment, you should use back-LINK labels instead.  The idea is exactly
-        the same, except you are storing the ID of the last *link* in a shortest
-        path to each node.
-
-        The backlink and cost labels are both stored in dict's, whose keys are
-        node IDs.
-
-        *** BE SURE YOUR IMPLEMENTATION RESPECTS THE FIRST THROUGH NODE!
-        *** Travelers should not be able to use "centroid connectors" as shortcuts,
-        *** and the shortest path tree should reflect this.
-
-        You should use the macro utils.NO_PATH_EXISTS to initialize backlink labels,
-        and utils.INFINITY to initialize cost labels.
+        This implementation uses backLINK labels, not backnode labels. The backlink and
+        cost labels are both stored in dict's, whose keys are node IDs.
         """
         backlink = dict()
         cost = dict()
@@ -629,28 +250,15 @@ class Network:
         return (backlink, cost)
 
     def shortestPath(self, origin, destination=None, destonly=False, freeflow=False):
-
         """
         This method finds the shortest path in a network which may or may not have
         cycles; thus you cannot assume that a topological order exists.
 
-        The implementation in the text uses a vector of backnode labels.  In this
-        assignment, you should use back-LINK labels instead.  The idea is exactly
-        the same, except you are storing the ID of the last *link* in a shortest
-        path to each node.
+        Uses the 'cost' attribute of the Links to calculate travel times.  These values
+        are given -- not recalculated based on flows, BPR functions, etc.
 
-        Use the 'cost' attribute of the Links to calculate travel times.  These values
-        are given -- do not try to recalculate them based on flows, BPR functions, etc.
-
-        The backlink and cost labels are both stored in dict's, whose keys are
-        node IDs.
-
-        *** BE SURE YOUR IMPLEMENTATION RESPECTS THE FIRST THROUGH NODE!
-        *** Travelers should not be able to use "centroid connectors" as shortcuts,
-        *** and the shortest path tree should reflect this.
-
-        You should use the macro utils.NO_PATH_EXISTS to initialize backlink labels,
-        and utils.INFINITY to initialize cost labels.
+        This implementation uses backLINK labels, not backnode labels. The backlink and
+        cost labels are both stored in dict's, whose keys are node IDs.
         """
         backlink = dict()
         cost = dict()
@@ -680,7 +288,7 @@ class Network:
                     cost[i] = tempCost
                     backlink[i] = hi
                     labelChanged = True
-            if labelChanged == True:
+            if labelChanged is True:
                 scanList.extend([self.link[ij].head for ij in self.node[i].forwardStar
                                  if self.link[ij].head not in scanList])
             if destonly:
@@ -689,106 +297,11 @@ class Network:
 
         return (backlink, cost)
 
-    def a_star(self, origin, destination, g=None, freeflow=False, destonly=False):
-
+    def dijkstra(self, origin):
         """
         This method finds the shortest path in a network which may or may not have
         cycles; thus you cannot assume that a topological order exists.
-
-        The implementation in the text uses a vector of backnode labels.  In this
-        assignment, you should use back-LINK labels instead.  The idea is exactly
-        the same, except you are storing the ID of the last *link* in a shortest
-        path to each node.
-
-        Use the 'cost' attribute of the Links to calculate travel times.  These values
-        are given -- do not try to recalculate them based on flows, BPR functions, etc.
-
-        The backlink and cost labels are both stored in dict's, whose keys are
-        node IDs.
-
-        *** BE SURE YOUR IMPLEMENTATION RESPECTS THE FIRST THROUGH NODE!
-        *** Travelers should not be able to use "centroid connectors" as shortcuts,
-        *** and the shortest path tree should reflect this.
-
-        You should use the macro utils.NO_PATH_EXISTS to initialize backlink labels,
-        and utils.INFINITY to initialize cost labels.
         """
-        backnode = dict()
-        L = dict()
-
-        allnodes = []
-        for i in self.node:
-            backnode[i] = utils.NO_PATH_EXISTS
-            L[i] = utils.INFINITY
-            allnodes.append(i)
-
-        L[origin] = 0
-
-        F = []
-        E = [origin]
-
-        while True:
-            try:
-                pick = None
-                mincost = np.inf
-                for n in E:
-                    if g==None:
-                        curcost = L[n]
-                    else:
-                        curcost = L[n] + g[n]
-                    if curcost <= mincost:
-                        mincost = curcost
-                        pick = n
-                i = pick
-                
-                F.append(i)
-                E.remove(i)
-
-                if len(F) == len(allnodes):
-                    break
-
-                if g!=None and destination in F:
-                    break
-                if destonly and destination in F:
-                    break
-
-
-                jlist = []
-                for ij in self.node[i].forwardStar:
-                    j = self.link[ij].head
-                    if i < self.firstThroughNode and i != origin:
-                        continue
-                    if freeflow:
-                        tempCost = L[i] + self.link[ij].freeFlowTime
-                    else:
-                        tempCost = L[i] + self.link[ij].cost
-                    if tempCost < L[j]:
-                        L[j] = tempCost
-                        labelChanged = True
-                        backnode[j] = i
-                    jlist.append(j)
-
-                for j in jlist:
-                    if (j not in F) and (i in F):
-                        E.append(j)
-                        E = list(set(E))
-            except:
-                pdb.set_trace()
-
-        return (backnode, L)
-
-    def find_g(self, destination):
-        #for everynode find sp to s
-        g = {}
-        for i in self.node:
-            if i != destination:
-                bnode, cost = self.a_star(i, destination, freeflow=True)
-                ### test a_star code with older hw assignment
-                g[i] = cost[destination]
-        g[destination] = 0
-        return g
-
-    def dijkstra(self, origin):
         visited = set()
         backlink = defaultdict(lambda: utils.NO_PATH_EXISTS)
         cost = defaultdict(lambda: utils.INFINITY)
@@ -800,15 +313,15 @@ class Network:
             _, n = heap.heappop(PriorityQueue)
             visited.add(n)
 
-            for l in self.node[n].forwardStar:
-                adjNode = self.link[l].head
+            for link in self.node[n].forwardStar:
+                adjNode = self.link[link].head
                 if adjNode in visited:
                     continue
-                weight = self.link[l].cost
+                weight = self.link[link].cost
 
                 newCost = cost[n] + weight
                 if cost[adjNode] > newCost:
-                    backlink[adjNode] = l
+                    backlink[adjNode] = link
                     cost[adjNode] = newCost
                     heap.heappush(PriorityQueue, (newCost, adjNode))
 
@@ -826,10 +339,6 @@ class Network:
 
         Be aware that the network files are in the TNTP format, where nodes are numbered
         starting at 1, whereas Python starts numbering at 0.
-
-        Your code will not be scored based on efficiency, but you should think about
-        different ways of finding an all-or-nothing loading, and how this might
-        best be done.
         """
         allOrNothing = dict()
         for ij in self.link:
@@ -837,15 +346,16 @@ class Network:
 
         for origin in range(1, self.numZones + 1):
             (backlink, cost) = self.dijkstra(origin)
-            for OD in [OD for OD in self.ODpair if self.ODpair[OD].origin == origin]:
-                curnode = self.ODpair[OD].destination
-                while curnode != self.ODpair[OD].origin:
-                    allOrNothing[backlink[curnode]] += self.ODpair[OD].demand
+            for od in [od for od in self.ODpair if self.ODpair[od].origin == origin]:
+                curnode = self.ODpair[od].destination
+                while curnode != self.ODpair[od].origin:
+                    allOrNothing[backlink[curnode]] += self.ODpair[od].demand
                     curnode = self.link[backlink[curnode]].tail
 
         return allOrNothing
 
     def findFreeFlowSPTT(self):
+        SPTT = 0
         short = self.allOrNothing()
         for ij in self.link:
             SPTT += (short[ij]*self.link[ij].freeFlowTime)
@@ -853,8 +363,8 @@ class Network:
 
     def findLeastEnteringLinks(self):
         """
-        This method should return the ID of the node with the *least* number
-        of links entering the node.  Ties can be broken arbitrarily.
+        This method returns the ID of the node with the *least* number of links
+        entering the node.  Ties can be broken arbitrarily.
         """
         leastEnteringLinks = self.numLinks + 1
         leastEnteringNode = None
@@ -866,12 +376,11 @@ class Network:
 
     def formAdjacencyMatrix(self):
         """
-        This method should produce an adjacency matrix, with rows and columns
-        corresponding to each node, and entries of 1 if there is a link connecting
-        the row node to the column node, and 0 otherwise.  This matrix should
-        be stored in self.adjacencyMatrix, which is a dictionary of dictionaries:
-        the first key is the "row" (tail) node, and the second key is the "column"
-        (head) node.
+        This method produce an adjacency matrix, with rows and columns corresponding to
+        each node, and entries of 1 if there is a link connecting the row node to the
+        column node, and 0 otherwise.  This matrix is stored in self.adjacencyMatrix,
+        which is a dictionary of dictionaries: the first key is the "row" (tail) node,
+        and the second key is the "column" (head) node.
         """
         self.adjacencyMatrix = dict()
         for i in self.node:
@@ -884,20 +393,18 @@ class Network:
 
     def findTopologicalOrder(self):
         """
-        This method should find a topological order for the network, storing
-        the order in the 'order' attribute of the nodes, i.e.:
-           self.node[5].order 
-        should store the topological label for node 5.
+        This method finds a topological order for the network, storing the order in the
+        'order' attribute of the nodes, i.e.: self.node[5].order stores the topological
+        label for node 5.
 
         The topological order is generally not unique, this method can return any
-        valid order.  The nodes should be labeled 1, 2, 3, ... up through numNodes.
+        valid order.  The nodes are labeled 1, 2, 3, ... up through numNodes.
 
         If the network has cycles, a topological order does not exist.  The presence
         of cycles can be detected in the algorithm for finding a topological order,
-        and you should raise an exception if this is detected.
+        and raises an exception if this is detected.
         """
-        # This implementation temporarily messes with reverse stars, must fix
-        # at end
+        # This implementation temporarily messes with reverse stars, must fix at end
         numOrderedNodes = 0
         while numOrderedNodes < self.numNodes:
             nextNode = self.findLeastEnteringLinks()
@@ -934,8 +441,8 @@ class Network:
 
     def loadPaths(self):
         """
-        This method should take given values of path flows (stored in the
-        self.path[].flow attributes), and do the following:
+        This method takes given values of path flows (stored in the self.path[].flow
+        attributes), and do the following:
            1. Set link flows to correspond to these values (self.link[].flow)
            2. Set link costs based on new flows (self.link[].cost), see link.py
            3. Set path costs based on new link costs (self.path[].cost), see path.py
@@ -959,7 +466,7 @@ class Network:
         for ij in sorted(self.link, key=lambda ij: self.link[ij].sortKey):
             networkStr += "%s\t%f\t%f\n" % (ij,
                                             self.link[ij].flow, self.link[ij].cost)
-        if printODData == True:
+        if printODData is True:
             networkStr += "\n"
             networkStr += "OD pair\tDemand\tLeastCost\n"
             for ODpair in self.ODpair:
@@ -974,7 +481,7 @@ class Network:
         the input data (validate) and build necessary data structures (finalize).
         """
         self.readNetworkFile(networkFile)
-        if type(demandFile) == list:
+        if isinstance(demandFile,list):
             self.readMultDemandFile(demandFile)
         else:
             self.readDemandFile(demandFile)
@@ -1001,17 +508,18 @@ class Network:
                 try:
                     self.numNodes = int(metadata['NUMBER OF NODES'])
                     self.numLinks = int(metadata['NUMBER OF LINKS'])
-                    if self.numZones != None:
+                    if self.numZones is not None:
                         if self.numZones != int(metadata['NUMBER OF ZONES']):
-                            print(
-                                "Error: Number of zones does not match in network/demand files.")
+                            print("Error: Number of zones does not match in \
+                                  network/demand files.")
                             raise utils.BadFileFormatException
                     else:
                         self.numZones = int(metadata['NUMBER OF ZONES'])
                     self.firstThroughNode = int(metadata['FIRST THRU NODE'])
                 except KeyError:  # KeyError
-                    print("Warning: Not all metadata present, error checking will be limited and \
-                          code will proceed as though all nodes are through nodes.")
+                    print("Warning: Not all metadata present, error checking will be \
+                          limited and code will proceed as though all nodes are \
+                          through nodes.")
                 self.tollFactor = float(metadata.setdefault('TOLL FACTOR', 0))
                 self.distanceFactor = float(metadata.setdefault('DISTANCE FACTOR', 0))
 
@@ -1073,17 +581,17 @@ class Network:
                 metadata = utils.readMetadata(fileLines)
                 try:
                     self.totalDemandCheck = float(metadata['TOTAL OD FLOW'])
-                    if self.numZones != None:
+                    if self.numZones is not None:
                         if self.numZones != int(metadata['NUMBER OF ZONES']):
-                            print(
-                                "Error: Number of zones does not match in network/demand files.")
+                            print("Error: Number of zones does not match in \
+                                  network/demand files.")
                             raise utils.BadFileFormatException
                     else:
                         self.numZones = int(metadata['NUMBER OF ZONES'])
 
                 except KeyError:  # KeyError
-                    print("Warning: Not all metadata present in demand file, error checking will \
-                          be limited.")
+                    print("Warning: Not all metadata present in demand file, error \
+                          checking will be limited.")
 
                 for line in fileLines[metadata['END OF METADATA']:]:
                     # Ignore comments and blank lines
@@ -1115,7 +623,8 @@ class Network:
                                 demand = float(demand[:len(demand) - 1])
                                 if check != ':':
                                     print(
-                                        "Demand data line not formatted properly:\n %s" % line)
+                                        "Demand data line not formatted properly:\n %s"
+                                        % line)
                                     raise utils.BadFileFormatException
                                 ODID = str(origin) + '->' + str(destination)
                                 self.ODpair[ODID] = OD(origin, destination, demand)
@@ -1128,7 +637,8 @@ class Network:
                                 demand = float(demand[:len(demand)])
                                 if check != ':':
                                     print(
-                                        "Demand data line not formatted properly:\n %s" % line)
+                                        "Demand data line not formatted properly:\n %s"
+                                        % line)
                                     raise utils.BadFileFormatException
                                 ODID = str(origin) + '->' + str(destination)
                                 self.ODpair[ODID] = OD(origin, destination, demand)
@@ -1142,14 +652,15 @@ class Network:
                             demand = float(demand[:len(demand)])
                             if check != ':':
                                 print(
-                                    "Demand data line not formatted properly:\n %s" % line)
+                                    "Demand data line not formatted properly:\n %s"
+                                    % line)
                                 raise utils.BadFileFormatException
                             ODID = str(origin) + '->' + str(destination)
                             self.ODpair[ODID] = OD(origin, destination, demand)
                             self.totalDemand += demand
 
         except IOError:
-            print("\nError reading network file %s" % networkFile)
+            print("\nError reading demand file %s" % demandFile)
             traceback.print_exc(file=sys.stdout)
 
     def readMultDemandFile(self, demandFileName):
@@ -1170,19 +681,20 @@ class Network:
                     metadata = utils.readMetadata(fileLines)
                     try:
                         self.classDemandCheck[c] = float(metadata['TOTAL OD FLOW'])
-                        if self.numZones != None:
+                        if self.numZones is not None:
                             if self.numZones != int(metadata['NUMBER OF ZONES']):
-                                print("Error: Number of zones does not match in network/demand \
-                                      files.")
+                                print("Error: Number of zones does not match in \
+                                      network/demand files.")
                                 raise utils.BadFileFormatException
                         else:
                             self.numZones = int(metadata['NUMBER OF ZONES'])
 
                     except KeyError:  # KeyError
-                        print("Warning: Not all metadata present in demand file, error checking \
-                              will be limited.")
+                        print("Warning: Not all metadata present in demand file, error \
+                              checking will be limited.")
                     self.tollFactor[c] = float(metadata.setdefault('TOLL FACTOR', 0))
-                    self.distanceFactor[c] = float(metadata.setdefault('DISTANCE FACTOR', 0))
+                    self.distanceFactor[c] = float(
+                        metadata.setdefault('DISTANCE FACTOR', 0))
 
 
                     for line in fileLines[metadata['END OF METADATA']:]:
@@ -1203,7 +715,7 @@ class Network:
                         # Two possibilities, either semicolons are directly after
                         # values or there is an intervening space
                         if len(data) % 3 != 0 and len(data) % 4 != 0:
-                            print("Demand data line not formatted properly:\n %s" % line)
+                            print("Demand data line not formatted properly:\n %s" %line)
                             raise utils.BadFileFormatException
 
                         if len(data) % 3 == 0:
@@ -1215,7 +727,8 @@ class Network:
                                 demand = float(demand[:len(demand) - 1])
                                 if check != ':':
                                     print(
-                                        "Demand data line not formatted properly:\n %s" % line)
+                                        "Demand data line not formatted properly:\n %s"
+                                        % line)
                                     raise utils.BadFileFormatException
                                 try:
                                     self.ODpair[ODID].demand += demand
@@ -1232,7 +745,8 @@ class Network:
                                 demand = float(demand[:len(demand)])
                                 if check != ':':
                                     print(
-                                        "Demand data line not formatted properly:\n %s" % line)
+                                        "Demand data line not formatted properly:\n %s"
+                                        % line)
                                     raise utils.BadFileFormatException
                                 try:
                                     self.ODpair[ODID].demand += demand
@@ -1246,7 +760,7 @@ class Network:
                 self.totalDemandCheck = None
 
         except IOError:
-            print("\nError reading network file %s" % networkFile)
+            print("\nError reading demand file %s" % demandFile)
             traceback.print_exc(file=sys.stdout)
 
     def validate(self):
@@ -1283,11 +797,11 @@ class Network:
             if not valid:
                 print("Error: Origin/destination %s not found" % ODpair)
                 raise utils.BadFileFormatException
-            valid = valid and self.node[origin].isZone == True
-            valid = valid and self.node[destination].isZone == True
+            valid = valid and self.node[origin].isZone is True
+            valid = valid and self.node[destination].isZone is True
             if not valid:
-                print(
-                    "Error: Origin/destination %s does not connect two zones" % str(ODpair))
+                print("Error: Origin/destination %s does not connect two zones"
+                      % str(ODpair))
                 raise utils.BadFileFormatException
             valid = valid and self.ODpair[ODpair].demand >= 0
             if not valid:
@@ -1295,20 +809,22 @@ class Network:
                 raise utils.BadFileFormatException
 
         # Now error-check using metadata
-        if self.numNodes != None and len(self.node) != self.numNodes:
-            print("Warning: Number of nodes implied by network file %d different than metadata \
-                  value %d" % (len(self.node), self.numNodes))
+        if self.numNodes is not None and len(self.node) != self.numNodes:
+            print("Warning: Number of nodes implied by network file %d different than \
+                  metadata value %d" % (len(self.node), self.numNodes))
             self.numNodes = len(self.node)
-        if self.numLinks != None and len(self.link) != self.numLinks:
-            print("Warning: Number of links given in network file %d different than metadata value \
-                  %d" % (len(self.link), self.numLinks))
+        if self.numLinks is not None and len(self.link) != self.numLinks:
+            print("Warning: Number of links given in network file %d different than \
+                  metadata value %d" % (len(self.link), self.numLinks))
             self.numLinks = len(self.link)
-        if (self.numZones != None and
-                len([i for i in self.node if self.node[i].isZone == True]) != self.numZones):
-            print("Warning: Number of zones given in network file %d different than metadata value \
-                  %d" % (len([i for i in self.node if self.node[i].isZone == True]), self.numZones))
+        if (self.numZones is not None and
+            len([i for i in self.node if self.node[i].isZone is True])!=self.numZones):
+            print("Warning: Number of zones given in network file %d different than \
+                  metadata value %d"
+                  % (len([i for i in self.node if self.node[i].isZone is True]),
+                  self.numZones))
             self.numLinks = len(self.link)
-        if self.totalDemandCheck != None:
+        if self.totalDemandCheck is not None:
             if self.totalDemand != self.totalDemandCheck:
                 print("Warning: Total demand is %f compared to metadata value %f" % (
                     self.totalDemand, self.totalDemandCheck))
@@ -1328,8 +844,8 @@ class Network:
             self.node[self.link[ij].head].reverseStar.append(ij)
             self.link[ij].flow = 0
             if self.numClasses == 1:
-                self.link[ij].cost = self.link[ij].freeFlowTime + self.link[ij].length * \
-                    self.distanceFactor + self.link[ij].toll * self.tollFactor
+                self.link[ij].cost = (self.link[ij].freeFlowTime + self.link[ij].length
+                    * self.distanceFactor + self.link[ij].toll * self.tollFactor)
             else:
                 self.link[ij].cost = self.link[ij].freeFlowTime
                 self.link[ij].classCost = np.repeat(0,self.numClasses)
@@ -1338,5 +854,5 @@ class Network:
                     self.link[ij].classCost[c] = self.link[ij].length * \
                         self.distanceFactor[c] + self.link[ij].toll * self.tollFactor[c]
 
-        for OD in self.ODpair:
-            self.ODpair[OD].leastCost = 0
+        for od in self.ODpair:
+            self.ODpair[od].leastCost = 0

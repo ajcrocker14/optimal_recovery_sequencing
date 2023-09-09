@@ -7,7 +7,9 @@ class Link:
       3. Distance-related costs, the product of length and network.distanceFactor
    """
    
-   def __init__(self, network, tail, head, capacity = 99999, length = 99999, freeFlowTime = 99999, alpha = 0.15, beta = 4, speedLimit = 99999, toll = 0, linkType = 0):
+   def __init__(self, network, tail, head, capacity = 99999, length = 99999,
+                freeFlowTime = 99999, alpha = 0.15, beta = 4, speedLimit = 99999,
+                toll = 0, linkType = 0):
       """
       Initializer for links; note default values for parameters if not specified.
       For the classic traffic assignment problem speedLimit and linkType do  not
@@ -25,7 +27,7 @@ class Link:
       self.speedLimit = speedLimit
       self.toll = toll
       self.linkType = linkType
-      self.sortKey = tail * network.numLinks + head # makes for easy sorting in forward star order
+      self.sortKey = tail * network.numLinks + head # easy sorting in forward star order
 
    def calculateCost(self):
       """
@@ -36,9 +38,11 @@ class Link:
       vcRatio = self.flow / self.capacity
       # Protect against negative flows, 0^0 errors.
       if vcRatio <= 0:
-         return self.freeFlowTime + self.toll * self.network.tollFactor + self.length * self.network.distanceFactor 
+         return (self.freeFlowTime + self.toll * self.network.tollFactor + self.length
+                 * self.network.distanceFactor)
       travelTime = self.freeFlowTime * (1 + self.alpha * pow(vcRatio, self.beta))
-      return travelTime + self.toll * self.network.tollFactor + self.length * self.network.distanceFactor 
+      return (travelTime + self.toll * self.network.tollFactor + self.length
+              * self.network.distanceFactor)
 
    def calculateCost_df(self):
       """
@@ -50,7 +54,8 @@ class Link:
       # Protect against negative flows, 0^0 errors.
       if vcRatio <= 0:
          return self.freeFlowTime 
-      travelTime = self.freeFlowTime * (self.beta*(float(self.alpha)/self.capacity) * vcRatio**(self.beta-1))
+      travelTime = self.freeFlowTime * (self.beta*(float(self.alpha)/self.capacity)
+                   * vcRatio**(self.beta-1))
       
       return travelTime
 
@@ -63,10 +68,9 @@ class Link:
       # Protect against negative flows, 0^0 errors.
       if vcRatio <= 0:
          return 0
-      return self.flow * (self.toll * self.network.tollFactor + self.length * self.network.distanceFactor 
-                           + self.freeFlowTime * (1 + self.alpha / (self.beta + 1) * pow(vcRatio, self.beta))
-                         )
-
+      return self.flow * (self.toll * self.network.tollFactor + self.length
+             * self.network.distanceFactor + self.freeFlowTime
+             * (1 + self.alpha / (self.beta + 1) * pow(vcRatio, self.beta)))
 
    def updateCost(self):
       """

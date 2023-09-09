@@ -2,12 +2,6 @@ NO_PATH_EXISTS = "N/A"
 INFINITY = 99999
 FRANK_WOLFE_STEPSIZE_PRECISION = 1e-5
 
-class NotYetAttemptedException(Exception):
-   """
-   This exception is used as a placeholder for code you should fill in.
-   """
-   pass
-
 class BadFileFormatException(Exception):
    """
    This exception is raised if a network or demand file is in the wrong format or

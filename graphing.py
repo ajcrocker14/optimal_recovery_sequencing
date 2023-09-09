@@ -7,8 +7,8 @@ import matplotlib._color_data as mcd
 from scipy import stats
 
 
-def graph_current(tstt_state, days_state, before_eq_tstt, after_eq_tstt, path, plt_path, algo, together, place,
-                  color_dict):
+def graph_current(tstt_state, days_state, before_eq_tstt, after_eq_tstt, path,
+                  plt_path, algo, together, place, color_dict):
     N = sum(days_state)
 
     cur_tstt = after_eq_tstt
@@ -38,8 +38,8 @@ def graph_current(tstt_state, days_state, before_eq_tstt, after_eq_tstt, path, p
     else:
         plt.figure(figsize=(16, 8))
 
-    plt.fill_between(x, y, before_eq_tstt, step="post",
-                     color='#087efe', alpha=0.2, label='TOTAL AREA:' + '{0:1.3e}'.format(tot_area))
+    plt.fill_between(x, y, before_eq_tstt, step="post", color='#087efe', alpha=0.2,
+                     label='TOTAL AREA:' + '{0:1.3e}'.format(tot_area))
     # plt.step(x, y, label='tstt', where="post")
     plt.xlabel('DAYS')
     plt.ylabel('TSTT (in minutes)')
@@ -59,25 +59,30 @@ def graph_current(tstt_state, days_state, before_eq_tstt, after_eq_tstt, path, p
         #     ha = 'right'
 
         t = plt.text(start + N * 0.01, y[i] + before_eq_tstt * 0.02,
-                     "link: " + path[i] + '\n' + "time: " + str(round(days_state[i], 2)), ha=ha, size=8,
-                     bbox=bbox_props)
+            "link: " + path[i] + '\n' + "time: " + str(round(days_state[i], 2)), ha=ha,
+            size=8, bbox=bbox_props)
 
         bb = t.get_bbox_patch()
 
         # start + days_state[i]/2
-        # plt.annotate("link: " + path[i], (start, y[i]), textcoords='offset points', xytext=(5,15), ha='left', size='smaller')
+        # plt.annotate("link: " + path[i], (start, y[i]), textcoords='offset points',
+        #              xytext=(5,15), ha='left', size='smaller')
         # plt.annotate("time: " + str(round(days_state[i],2)), (start, y[i]),
         # textcoords='offset points', xytext=(5,5), ha='left', size='smaller')
         # #, arrowprops=dict(width= days_state[i]))
 
-        # plt.annotate("", xy=(start + days_state[i], y[i]), xytext=(start, y[i]) , textcoords='offset points', ha='center', arrowprops=dict(arrowstyle='<->', connectionstyle="arc3"))
-        # plt.arrow(0.85, 0.5, dx = -0.70, dy = 0, head_width=0.05, head_length=0.03, linewidth=4, color='g', length_includes_head=True)
+        # plt.annotate("", xy=(start + days_state[i], y[i]), xytext=(start, y[i]),
+        #              textcoords='offset points', ha='center',
+        #              arrowprops=dict(arrowstyle='<->', connectionstyle="arc3"))
+        # plt.arrow(0.85, 0.5, dx = -0.70, dy = 0, head_width=0.05, head_length=0.03,
+        #           linewidth=4, color='g', length_includes_head=True)
 
         plt.annotate(s='', xy=(start + days_state[i], y[i]), xytext=(
             start, y[i]), arrowprops=dict(arrowstyle='<->', color=color))
 
-        # plt.annotate(s='', xy=(start + days_state[i], y[i]), xytext=(start + days_state[
-        #              i], y[i + 1]), arrowprops=dict(arrowstyle='<->', color='indigo'))
+        # plt.annotate(s='', xy=(start + days_state[i], y[i]),
+        #              xytext=(start + days_state[i], y[i + 1]),
+        #              arrowprops=dict(arrowstyle='<->', color='indigo'))
 
         # plt.annotate("" + str(round(y[i] - y[i+1], 2)), xy=(start +
         # days_state[i], (y[i] - y[i+1])/2), xytext=(10,10), textcoords='offset
@@ -185,8 +190,8 @@ def get_common_numbers():
             for rep in range(reps + 1):
                 for method_dict in dict_list:
                     for key in key_list:
-                        method_dict[key].append(load(os.path.join(file_path, str(rep)) + '/' + filenames[
-                                                dict_list.index(method_dict)] + key))
+                        method_dict[key].append(load(os.path.join(file_path, str(rep))
+                            + '/' + filenames[dict_list.index(method_dict)] + key))
 
             sample_size = reps + 1
 
@@ -213,14 +218,16 @@ def get_common_numbers():
             plt.rcParams["font.size"] = 8
             # hatch='///', hatch='\\\\\\', hatch='xxx'
             plt.bar(0, cm_perc, width=barWidth, edgecolor='#087efe', color='#087efe',
-                    ecolor='#c6ccce', alpha=0.8, capsize=5, label='Case 1', align='center')
+                ecolor='#c6ccce', alpha=0.8, capsize=5, label='Case 1', align='center')
             plt.bar(0.1, um_perc, width=barWidth, edgecolor='#b7fe00', color='#b7fe00',
-                    ecolor='#c6ccce', alpha=0.8, capsize=5, label='Case 2', align='center')
+                ecolor='#c6ccce', alpha=0.8, capsize=5, label='Case 2', align='center')
 
-            plt.annotate('{:1.3f}'.format(cm_perc) + '%', (0, 0), textcoords='offset points', xytext=(
-                0, 20), ha='center', va='bottom', rotation=70, size=10)
-            plt.annotate('{:1.3f}'.format(um_perc) + '%', (0 + barWidth, 0), textcoords='offset points', xytext=(
-                0, 20), ha='center', va='bottom', rotation=70, size=10)
+            plt.annotate('{:1.3f}'.format(cm_perc) + '%', (0, 0), textcoords=
+                'offset points', xytext=(0, 20), ha='center', va='bottom', rotation=70,
+                size=10)
+            plt.annotate('{:1.3f}'.format(um_perc) + '%', (0 + barWidth, 0), textcoords=
+                'offset points', xytext=(0, 20), ha='center', va='bottom', rotation=70,
+                size=10)
 
             plt.ylabel('Percentage', size=10)
             if netdir.find('SiouxFalls') >= 0:
@@ -239,7 +246,7 @@ def get_common_numbers():
 
 
 def result_table(reps, file_path, broken, ks, biginstance=True):
-    # bs_param_2 = str(int(int(broken) / 2.0))
+    bs_param_2 = str(int(int(broken) / 2.0))
     if int(broken) >= 32:
         biginstance = True
 
@@ -258,7 +265,7 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
         else:
             filenames.extend(['r_algo_solution_k' + str(k)])
 
-    filenames.extend(['greedy_solution', 'layzgreedy_solution', 'importance_factor_bound'])
+    filenames.extend(['greedy_solution','layzgreedy_solution','importance_factor_bound'])
 
     if fullinc:
         filenames.insert(0,'algo_solution')
@@ -292,8 +299,8 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
         for method_dict in dict_list:
             for key in key_list + key_list2:
                 try:
-                    method_dict[key].append(
-                        load(os.path.join(file_path, str(rep)) + '/' + filenames[dict_list.index(method_dict)] + key))
+                    method_dict[key].append(load(os.path.join(file_path, str(rep))
+                        + '/' + filenames[dict_list.index(method_dict)] + key))
                 except:
                     print(method_dict)
                     if key == '_num_tap':
@@ -332,13 +339,19 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
              optimal.append(load(os.path.join(file_path, str(rep)) + '/' + 'min_seq_obj'))
 
     else:
-        # optimal = np.minimum(np.array(r_heuristic4['_obj']), np.minimum(np.array(heuristic4['_obj']), np.minimum(np.array(r_heuristic8['_obj']), np.minimum(np.array(r_heuristic2['_obj']), np.minimum(
-            # np.minimum(np.array(heuristic2['_obj']), np.array(heuristic8['_obj'])), np.array(greedy['_obj']))))))
+        # optimal = np.minimum(np.array(r_heuristic4['_obj']),
+        #     np.minimum(np.array(heuristic4['_obj']),
+        #     np.minimum(np.array(r_heuristic8['_obj']),
+        #     np.minimum(np.array(r_heuristic2['_obj']), np.minimum(
+        #     np.minimum(np.array(heuristic2['_obj']),
+        #     np.array(heuristic8['_obj'])), np.array(greedy['_obj']))))))
         if biginstance:
-            optimal = np.minimum(np.array(r_heuristic2['_obj']), np.array(greedy['_obj']))
+            optimal = np.minimum(np.array(r_heuristic2['_obj']),
+                                 np.array(greedy['_obj']))
 
         else:
-            optimal = np.minimum(np.array(r_heuristic2['_obj']),np.minimum(np.array(heuristic2['_obj']), np.array(greedy['_obj'])))
+            optimal = np.minimum(np.array(r_heuristic2['_obj']),
+                np.minimum(np.array(heuristic2['_obj']), np.array(greedy['_obj'])))
     if fullinc:
         optimal = np.minimum(optimal, np.array(algo['_obj']))
 
@@ -402,15 +415,18 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     elapsed_range_above = elapsed_range_above/max(elapsed_means)
     elapsed_range_below = elapsed_range_below/max(elapsed_means)
 
-    obj_err_scaled = np.nan_to_num(np.array(obj_err)/np.array(obj_means)*np.array(obj_means_scaled))
+    obj_err_scaled = np.nan_to_num(np.array(obj_err)/np.array(obj_means)
+                                   *np.array(obj_means_scaled))
     # obj_err_scaled = obj_err * obj_means_scaled /obj_means
 
     tap_means_scaled = tap_means / max(tap_means)
-    tap_err_scaled = np.nan_to_num(np.array(tap_err)/np.array(tap_means)*np.array(tap_means_scaled))
+    tap_err_scaled = np.nan_to_num(np.array(tap_err)/np.array(tap_means)
+                                   *np.array(tap_means_scaled))
     # tap_err_scaled = tap_err / max(tap_means)
 
     elapsed_means_scaled = elapsed_means / max(elapsed_means)
-    elapsed_err_scaled = np.nan_to_num(np.array(elapsed_err)/np.array(elapsed_means)*np.array(elapsed_means_scaled))
+    elapsed_err_scaled = np.nan_to_num(np.array(elapsed_err)/np.array(elapsed_means)
+                                       *np.array(elapsed_means_scaled))
     # elapsed_err_scaled = elapsed_err / max(elapsed_means)
 
 
@@ -421,23 +437,26 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     percgap = maxdiff #/ optimal[argmaxdiff] * 100
 
     # pdb.set_trace()
-    # which = np.argmin([np.array(heuristic2['_obj'])[argmaxdiff], np.array(heuristic32['_obj'])[argmaxdiff], np.array(algo['_obj'])[argmaxdiff]])
+    # which = np.argmin([np.array(heuristic2['_obj'])[argmaxdiff],
+    #    np.array(heuristic32['_obj'])[argmaxdiff], np.array(algo['_obj'])[argmaxdiff]])
     # percgapmax.append(0)
 
 
     if fullinc:
-        percgapmax.append(np.max((np.array(algo['_obj'])[argmaxdiff] - optimal[argmaxdiff])/optimal[argmaxdiff]*100))
+        percgapmax.append(np.max((np.array(algo['_obj'])[argmaxdiff]
+                                  - optimal[argmaxdiff])/optimal[argmaxdiff]*100))
         numtapmax.append(np.array(algo['_num_tap'])[argmaxdiff])
         elapsedmax.append(np.array(algo['_elapsed'])[argmaxdiff])
 
 
     if not biginstance:
-        percgapmax.append(np.max((np.array(heuristic2['_obj'])[argmaxdiff] - optimal[argmaxdiff]) / optimal[argmaxdiff] * 100))
+        percgapmax.append(np.max((np.array(heuristic2['_obj'])[argmaxdiff]
+                                  - optimal[argmaxdiff]) / optimal[argmaxdiff] * 100))
         numtapmax.append(np.array(heuristic2['_num_tap'])[argmaxdiff])
         elapsedmax.append(np.array(heuristic2['_elapsed'])[argmaxdiff])
 
-    percgapmax.append(
-    np.max((np.array(r_heuristic2['_obj'])[argmaxdiff] - optimal[argmaxdiff]) / optimal[argmaxdiff] * 100))
+    percgapmax.append(np.max((np.array(r_heuristic2['_obj'])[argmaxdiff]
+                              - optimal[argmaxdiff]) / optimal[argmaxdiff] * 100))
     numtapmax.append(np.array(r_heuristic2['_num_tap'])[argmaxdiff])
     elapsedmax.append(np.array(r_heuristic2['_elapsed'])[argmaxdiff])
 
@@ -460,21 +479,27 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     # plt.rcParams["font.size"] = 8
     # # hatch='///', hatch='\\\\\\', hatch='xxx'
     #
-    # plt.bar(r_obj, percgapmax_scaled, width=barWidth, edgecolor='#087efe', color='#087efe',
-    #         ecolor='#c6ccce', alpha=0.8, capsize=5, label='Rel Gap', hatch='///')
-    # plt.bar(r_tap, numtapmax_scaled, width=barWidth, edgecolor='#00b33c', color='#00b33c',
-    #         ecolor='#c6ccce', alpha=0.8, capsize=5, label='Tap Solved', hatch='\\\\\\')
-    # plt.bar(r_elapsed, elapsedmax_scaled, width=barWidth, edgecolor='#FF4500', color='#FF4500',
-    #         ecolor='#c6ccce', alpha=0.8, capsize=5, label='Time Elapsed (s)', hatch='xxx')
+    # plt.bar(r_obj, percgapmax_scaled, width=barWidth, edgecolor='#087efe',
+    #     color='#087efe', ecolor='#c6ccce', alpha=0.8, capsize=5, label='Rel Gap',
+    #     hatch='///')
+    # plt.bar(r_tap, numtapmax_scaled, width=barWidth, edgecolor='#00b33c',
+    #     color='#00b33c', ecolor='#c6ccce', alpha=0.8, capsize=5, label='Tap Solved',
+    #     hatch='\\\\\\')
+    # plt.bar(r_elapsed, elapsedmax_scaled, width=barWidth, edgecolor='#FF4500',
+    #     color='#FF4500', ecolor='#c6ccce', alpha=0.8, capsize=5,
+    #     label='Time Elapsed (s)', hatch='xxx')
     #
     # # tap_means_scaled[i]/2
     # for i in range(len(percgapmax)):
-    #     plt.annotate('{0:1.1f}'.format(percgapmax[i]) + '%', (i, 0), textcoords='offset points', xytext=(
-    #         0, 20), ha='center', va='bottom', rotation=70, size=10)
-    #     plt.annotate('{0:1.1f}'.format(numtapmax[i]), (i + barWidth, 0), textcoords='offset points', xytext=(
-    #         0, 20), ha='center', va='bottom', rotation=70, size=10)
-    #     plt.annotate('{0:1.1f}'.format(elapsedmax[i]), (i + 2 * barWidth, 0), textcoords='offset points', xytext=(
-    #         0, 20), ha='center', va='bottom', rotation=70, size=10)
+    #     plt.annotate('{0:1.1f}'.format(percgapmax[i]) + '%', (i, 0),
+    #         textcoords='offset points', xytext=(0, 20), ha='center', va='bottom',
+    #         rotation=70, size=10)
+    #     plt.annotate('{0:1.1f}'.format(numtapmax[i]), (i + barWidth, 0),
+    #         textcoords='offset points', xytext=(0, 20), ha='center', va='bottom',
+    #         rotation=70, size=10)
+    #     plt.annotate('{0:1.1f}'.format(elapsedmax[i]), (i + 2 * barWidth, 0),
+    #         textcoords='offset points', xytext=(0, 20), ha='center', va='bottom',
+    #         rotation=70, size=10)
     #
     # plt.ylabel('Normalized Metric Value', size=10)
     #
@@ -511,43 +536,55 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     plt.rcParams["font.size"] = 8
     # hatch='///', hatch='\\\\\\', hatch='xxx'
     if len(objs) <= 2:
-        plt.bar(r_obj, obj_means_scaled, width=barWidth, edgecolor='#087efe', color='#087efe',
-                ecolor='#c6ccce', alpha=0.8, capsize=5, label='Avg Rel Gap', hatch='///')
-        plt.bar(r_tap, tap_means_scaled, width=barWidth, edgecolor='#b7fe00', color='#b7fe00',
-                ecolor='#c6ccce', alpha=0.8, capsize=5, label='Avg Tap Solved', hatch='\\\\\\')
-        plt.bar(r_elapsed, elapsed_means_scaled, width=barWidth, edgecolor='#ff9700', color='#FF4500',
-                ecolor='#c6ccce', alpha=0.8, capsize=5, label='Avg Time Elapsed (s)', hatch='xxx')
+        plt.bar(r_obj, obj_means_scaled, width=barWidth, edgecolor='#087efe',
+                color='#087efe', ecolor='#c6ccce', alpha=0.8, capsize=5,
+                label='Avg Rel Gap', hatch='///')
+        plt.bar(r_tap, tap_means_scaled, width=barWidth, edgecolor='#b7fe00',
+                color='#b7fe00', ecolor='#c6ccce', alpha=0.8, capsize=5,
+                label='Avg Tap Solved', hatch='\\\\\\')
+        plt.bar(r_elapsed, elapsed_means_scaled, width=barWidth, edgecolor='#ff9700',
+                color='#FF4500', ecolor='#c6ccce', alpha=0.8, capsize=5,
+                label='Avg Time Elapsed (s)', hatch='xxx')
 
     else:
         lower_err = np.array(obj_means_scaled) - np.array(obj_err_scaled)
         lower_err = np.where(lower_err < 0, obj_means_scaled, obj_err_scaled)
 
-        plt.bar(r_obj, obj_means_scaled, width=barWidth, edgecolor='#087efe', color='#087efe',
-                ecolor='#c6ccce', alpha=0.8, yerr=(obj_range_below, obj_range_above), capsize=5, label='Avg Rel Gap')
-        plt.bar(r_tap, tap_means_scaled, width=barWidth, edgecolor='#00b33c', color='#00b33c',
-                ecolor='#c6ccce', alpha=0.8, yerr=(tap_range_below, tap_range_above), capsize=5, label='Avg Tap Solved')
-        plt.bar(r_elapsed, elapsed_means_scaled, width=barWidth, edgecolor='#FF4500', color='#FF4500',
-                ecolor='#c6ccce', alpha=0.8, yerr=(elapsed_range_below, elapsed_range_above), capsize=5, label='Avg Time Elapsed (s)')
-        # plt.bar(r_obj, obj_means_scaled, width=barWidth, edgecolor='#087efe', color='#087efe',
-                # ecolor='#c6ccce', alpha=0.8, capsize=5, label='Avg Rel Gap')
-        # plt.bar(r_tap, tap_means_scaled, width=barWidth, edgecolor='#00b33c', color='#00b33c',
-                # ecolor='#c6ccce', alpha=0.8, capsize=5, label='Avg Tap Solved')
-        # plt.bar(r_elapsed, elapsed_means_scaled, width=barWidth, edgecolor='#FF4500', color='#FF4500',
-                # ecolor='#c6ccce', alpha=0.8, capsize=5, label='Avg Time Elapsed (s)')
+        plt.bar(r_obj, obj_means_scaled, width=barWidth, edgecolor='#087efe',
+                color='#087efe', ecolor='#c6ccce', alpha=0.8, yerr=(obj_range_below,
+                obj_range_above), capsize=5, label='Avg Rel Gap')
+        plt.bar(r_tap, tap_means_scaled, width=barWidth, edgecolor='#00b33c',
+                color='#00b33c', ecolor='#c6ccce', alpha=0.8, yerr=(tap_range_below,
+                tap_range_above), capsize=5, label='Avg Tap Solved')
+        plt.bar(r_elapsed, elapsed_means_scaled, width=barWidth, edgecolor='#FF4500',
+                color='#FF4500', ecolor='#c6ccce', alpha=0.8, yerr=(elapsed_range_below,
+                elapsed_range_above), capsize=5, label='Avg Time Elapsed (s)')
+        # plt.bar(r_obj, obj_means_scaled, width=barWidth, edgecolor='#087efe',
+        #         color='#087efe', ecolor='#c6ccce', alpha=0.8, capsize=5,
+        #         label='Avg Rel Gap')
+        # plt.bar(r_tap, tap_means_scaled, width=barWidth, edgecolor='#00b33c',
+        #         color='#00b33c', ecolor='#c6ccce', alpha=0.8, capsize=5,
+        #         label='Avg Tap Solved')
+        # plt.bar(r_elapsed, elapsed_means_scaled, width=barWidth, edgecolor='#FF4500',
+        #         color='#FF4500', ecolor='#c6ccce', alpha=0.8, capsize=5,
+        #         label='Avg Time Elapsed (s)')
 
 
     # tap_means_scaled[i]/2
     for i in range(len(dict_list)):
-        plt.annotate('{0:1.1f}'.format(obj_means[i]) + '%', (i, 0), textcoords='offset points', xytext=(
-            0, 20), ha='center', va='bottom', rotation=70, size=10)
-        plt.annotate('{0:1.1f}'.format(tap_means[i]), (i + barWidth, 0), textcoords='offset points', xytext=(
-            0, 20), ha='center', va='bottom', rotation=70, size=10)
-        plt.annotate('{0:1.1f}'.format(elapsed_means[i]), (i + 2 * barWidth, 0), textcoords='offset points', xytext=(
-            0, 20), ha='center', va='bottom', rotation=70, size=10)
+        plt.annotate('{0:1.1f}'.format(obj_means[i]) + '%', (i, 0),
+                     textcoords='offset points', xytext=(0, 20), ha='center',
+                     va='bottom', rotation=70, size=10)
+        plt.annotate('{0:1.1f}'.format(tap_means[i]), (i + barWidth, 0),
+                     textcoords='offset points', xytext=(0, 20), ha='center',
+                     va='bottom', rotation=70, size=10)
+        plt.annotate('{0:1.1f}'.format(elapsed_means[i]), (i + 2 * barWidth, 0),
+                     textcoords='offset points', xytext=(0, 20), ha='center',
+                     va='bottom', rotation=70, size=10)
 
     plt.ylabel('Normalized Metric Value', size=10)
     if fullinc:
-        xticks_str = ['MF', 'M' + bs_param_2, 'RM' + bs_param_2, 'M2', 'RM2', 'GM', 'IF']
+        xticks_str = ['MF', 'M'+bs_param_2, 'RM'+bs_param_2, 'M2', 'RM2', 'GM', 'IF']
     else:
         if biginstance:
             xticks_str = ['RM', 'GM', 'LGM', 'IF']
@@ -565,7 +602,8 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
               str(reps + 1) + ' different instances.'
     else:
         txt = "# Broken Links: " + str(broken) + ".\n Averaged over: " + str(
-            reps + 1) + ' different instances.\n Heuristic solution was taken as best - since not possible to solve to optimality'
+            reps + 1) + ' different instances.\n Heuristic solution was taken as best \
+            - since not possible to solve to optimality'
     # plt.figtext(0.5, 0.01, '', wrap=True,
     #             ha='center', va="bottom", fontsize=9)
     # plt.ylim(0,)
@@ -613,7 +651,8 @@ def result_table(reps, file_path, broken, ks, biginstance=True):
     #           str(reps + 1) + ' different instances.'
     # else:
     #     txt = "# Broken Links: " + str(broken) + ". \n Averaged over: " + str(
-    #         reps + 1) + ' different instances.\n Heuristic solution was taken as best - since not possible to solve to optimality'
+    #         reps + 1) + ' different instances.\n Heuristic solution was taken as \
+    #         best - since not possible to solve to optimality'
     #
     # plt.figtext(0.5, 0.01, txt, wrap=True,
     #             horizontalalignment='center', fontsize=7)
@@ -669,8 +708,8 @@ def result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1):
 
     # colors = ['y', 'r', 'b', 'g']
     for path, name, place in zip(paths, names, places):
-        tstt_list, days_list = get_marginal_tstts(
-            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, mc_weights=mc_weights)
+        tstt_list, days_list = get_marginal_tstts(net_after, path, after_eq_tstt,
+            before_eq_tstt, net_after.damaged_dict, mc_weights=mc_weights)
         graph_current(tstt_list, days_list, before_eq_tstt,
                       after_eq_tstt, path, path_pre, name, False, place, color_dict)
 
@@ -678,8 +717,8 @@ def result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1):
     # plt.figure(figsize=(16, 8))
 
     for path, name, place in zip(paths, names, places):
-        tstt_list, days_list = get_marginal_tstts(
-            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, mc_weights=mc_weights)
+        tstt_list, days_list = get_marginal_tstts(net_after, path, after_eq_tstt,
+            before_eq_tstt, net_after.damaged_dict, mc_weights=mc_weights)
         graph_current(tstt_list, days_list, before_eq_tstt,
                       after_eq_tstt, path, path_pre, name, True, place, color_dict)
 
@@ -688,7 +727,7 @@ def result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1):
 
 def multiClass_result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1):
     print('alt_dir is: ',alt_dir)
-    if alt_dir!=None:
+    if alt_dir is not None:
         path_pre = alt_dir + '/'
     else:
         path_pre = os.path.join(save_dir, str(rep)) + '/'
@@ -720,7 +759,8 @@ def multiClass_result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1)
     # GRAPH THE RESULTS
     paths = [soln_path, soln_path, soln_path, soln_path_alt, soln_path_alt, soln_path_alt]
     classes = [0,1,2,0,1,2]
-    names = ['Overall-unweighted', 'Class 1-unweighted', 'Class 2-unweighted', 'Overall-weighted', 'Class 1-weighted', 'Class 2-weighted']
+    names = ['Overall-unweighted', 'Class 1-unweighted', 'Class 2-unweighted',
+             'Overall-weighted', 'Class 1-weighted', 'Class 2-weighted']
     places = [321, 323, 325, 322, 324, 326]
 
     colors = plt.cm.ocean(np.linspace(0, 0.7, len(soln_path)))
@@ -732,25 +772,25 @@ def multiClass_result_sequence_graphs(rep, save_dir, alt_dir=None, mc_weights=1)
 
     # colors = ['y', 'r', 'b', 'g']
     for path, cl, name, place in zip(paths, classes, names, places):
-        tstt_list, days_list = get_marginal_tstts(
-            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, multiClass=True)
+        tstt_list, days_list = get_marginal_tstts(net_after, path, after_eq_tstt,
+            before_eq_tstt, net_after.damaged_dict, multiclass=True)
         sub_list = []
         for el in tstt_list:
             sub_list.append(el[cl])
         graph_current(sub_list, days_list, before_eq_tstt_mcunw[cl],
-                      after_eq_tstt_mcunw[cl], path, path_pre, name, False, place, color_dict)
+            after_eq_tstt_mcunw[cl], path, path_pre, name, False, place, color_dict)
 
     plt.close()
     # plt.figure(figsize=(16, 8))
 
     for path, cl, name, place in zip(paths, classes, names, places):
-        tstt_list, days_list = get_marginal_tstts(
-            net_after, path, after_eq_tstt, before_eq_tstt, net_after.damaged_dict, multiClass=True)
+        tstt_list, days_list = get_marginal_tstts(net_after, path, after_eq_tstt,
+            before_eq_tstt, net_after.damaged_dict, multiclass=True)
         sub_list = []
         for el in tstt_list:
             sub_list.append(el[cl])
         graph_current(sub_list, days_list, before_eq_tstt_mcunw[cl],
-                      after_eq_tstt_mcunw[cl], path, path_pre, name, True, place, color_dict)
+            after_eq_tstt_mcunw[cl], path, path_pre, name, True, place, color_dict)
 
     save_fig(path_pre, 'Comparison')
 
@@ -806,7 +846,8 @@ def get_sequence_graphs(directory, broken, alt_dir=None, multiClass=False, mc_we
         if multiClass == False:
             result_sequence_graphs(1, directory, alt_dir=alt_dir, mc_weights=mc_weights)
         else:
-            multiClass_result_sequence_graphs(1, directory, alt_dir=alt_dir, mc_weights=mc_weights)
+            multiClass_result_sequence_graphs(1, directory, alt_dir=alt_dir,
+                                              mc_weights=mc_weights)
     else:
         SCENARIO_DIR = directory
         #try:
@@ -841,4 +882,5 @@ def get_sequence_graphs(directory, broken, alt_dir=None, multiClass=False, mc_we
                 if multiClass == False:
                     result_sequence_graphs(rep, ULT_SCENARIO_DIR, mc_weights=mc_weights)
                 else:
-                    multiClass_result_sequence_graphs(rep, ULT_SCENARIO_DIR, mc_weights=mc_weights)
+                    multiClass_result_sequence_graphs(rep, ULT_SCENARIO_DIR,
+                                                      mc_weights=mc_weights)

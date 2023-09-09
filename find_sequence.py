@@ -1,12 +1,10 @@
 from graphing import *
-from correspondence import *
 from search import search, get_se_nodes
 
 import os.path
 from ctypes import *
 import random
 import operator as op
-from functools import reduce
 import itertools
 from scipy.special import comb
 
@@ -16,62 +14,58 @@ from matplotlib import patches as mpatch
 
 import math
 import argparse
-import cProfile
-import pstats
 import networkx as nx
-import progressbar
 from network import *
-
 
 extension = '.pickle'
 
 parser = argparse.ArgumentParser(description='find an order for repairing bridges')
 parser.add_argument('-n', '--net_name', type=str, help='network name')
 parser.add_argument('-b', '--num_broken', type=int, help='number of broken bridges')
-parser.add_argument('-a', '--approx', type=int, help=('approximation methods enabled - LAFO/LASR'
-                    +'1: display only min of LAFO/LASR, 2: display both, 3: also display altLASR'),
-                    default=0)
-parser.add_argument('-r', '--reps', type=int, help='number of scenarios with the given parameters',
-                    default=5)
-parser.add_argument('-t', '--tables', type=bool, help='table output mode', default=False)
-parser.add_argument('-g', '--graphing', type=bool,
-                    help='save results graphs and solution quality vs runtime graph', default=False)
+parser.add_argument('-a', '--approx', type=int, help=('approximation methods enabled \
+                    - LAFO/LASR, 1: display only min of LAFO/LASR, 2: display both, \
+                    3: also display altLASR'), default=0)
+parser.add_argument('-r', '--reps', type=int, help='number of scenarios with the given \
+                    parameters', default=5)
+parser.add_argument('-t', '--tables', type=bool, help='table output mode',default=False)
+parser.add_argument('-g', '--graphing', type=bool, help='save results graphs and \
+                    solution quality vs runtime graph', default=False)
 parser.add_argument('-l', '--loc', type=int, help='location based sampling', default=3)
-parser.add_argument('-o', '--scenario', type=str, help='scenario file', default='scenario.csv')
-parser.add_argument('-e', '--strength', type=str, help='strength of the earthquake')
-parser.add_argument('-y', '--onlybeforeafter', type=bool, help='to get before and after tstt',
-                    default=False)
+#parser.add_argument('-o', '--scenario', type=str, help='scenario file',
+#                    default='scenario.csv')
+#parser.add_argument('-e', '--strength', type=str, help='strength of the earthquake')
+parser.add_argument('-y', '--onlybeforeafter', type=bool, help='to get before and \
+                    after tstt', default=False)
 parser.add_argument('-z', '--output_sequences', type=bool,
                     help='to get sequences and params to csv from net/#', default=False)
-parser.add_argument('-f', '--full', type=bool, help='to use full algorithm not beam search',
-                    default=False)
-parser.add_argument('-s', '--beamsearch',
-                    help='use beam search for speed, to disable, enter -s without arguments',
-                    action='store_false')
-parser.add_argument('-j', '--random',
-                    help='generate scenarios randomly, to disable, enter -j without arguments',
-                    action='store_false')
-parser.add_argument('-c', '--gamma', type=int, help='hyperparameter to expand the search',
+parser.add_argument('-f', '--full', type=bool, help='to use full algorithm not beam \
+                    search', default=False)
+parser.add_argument('-s', '--beamsearch', help='use beam search for speed, to disable, \
+                    enter -s without arguments', action='store_false')
+parser.add_argument('-j', '--random', help='generate scenarios randomly, to disable, \
+                    enter -j without arguments', action='store_false')
+parser.add_argument('-c', '--gamma', type=int, help='hyperparameter to expand search',
                     default=128)
-parser.add_argument('-v', '--beta', type=int,
-                    help='hyperparameter that decides the frequency of purge', default=128)
-parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of work crews available',
-                    default=1)
+parser.add_argument('-v', '--beta', type=int, help='hyperparameter that comtrols \
+                    frequency of purge', default=128)
+parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of work \
+                    crews available', default=1)
 """ when multiple values are given for num_crews, order is found based
 on first number, and postprocessing is performed to find OBJ for other
 crew numbers """
-parser.add_argument('--bf', nargs='+', type=int,
-                    help='1: brute force (opt), 2: brute force using ML values', default=0)
-parser.add_argument('--ff', type=bool, help='calc lower bound using free flow times', default=False)
-parser.add_argument('--mip', nargs='+', type=int,
-                    help=('1: opt w/ precalced TSTTs, 2: ML TSTT values, 3: estimated deltaTSTT[t,b] values'),
-                    default=0) # uses Girobi solver, need license to use, coded for single-crew
-parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting at bfs',
+parser.add_argument('--bf', nargs='+', type=int, help='1: brute force (opt), 2: brute \
+                    force using ML values', default=0)
+parser.add_argument('--ff', type=bool, help='calc lower bound using free flow times',
                     default=False)
-parser.add_argument('--damaged', type=str, help='set damaged_dict to previously stored values',
-                    default='')
-parser.add_argument('--mc', type=bool, help='display separate TSTTs for each class of demand',
-                    default=False)
+parser.add_argument('--mip', nargs='+', type=int, help=('1: opt w/ precalced TSTTs, \
+                    2: ML TSTT values, 3: estimated deltaTSTT[t,b] values'), default=0)
+                    # mip uses Girobi solver, need license to use, coded for single-crew
+parser.add_argument('--sa', type=bool, help='solve using simulated annealing starting \
+                    at bfs', default=False)
+parser.add_argument('--damaged', type=str, help='set damaged_dict to previously stored \
+                    values', default='')
+parser.add_argument('--mc', type=bool, help='display separate TSTTs for each class of \
+                    demand', default=False)
 parser.add_argument('-w', '--mc_weights', nargs='+', type=int,
                     help='TSTT weights for each class of demand', default=1)
 parser.add_argument('--demand', type=float, help='demand multiplier', default=1)
@@ -94,7 +88,7 @@ class BestSoln():
 def eval_working_sequence(
         net, order_list, after_eq_tstt, before_eq_tstt, is_approx=False, num_crews=1,
         approx_params=None):
-    """evaluates the total tstt for a repair sequence, using memory to minimize runtime"""
+    """evaluates total tstt for a repair sequence, using memory to minimize runtime"""
     tap_solved = 0
     days_list = []
     tstt_list = []
@@ -170,8 +164,8 @@ def eval_working_sequence(
     return tot_area, tap_solved, tstt_list, times
 
 
-def last_benefit(
-        before, links_to_remove, before_eq_tstt, relax=False, bsearch=False, ext_name=''):
+def last_benefit(before, links_to_remove, before_eq_tstt, relax=False, bsearch=False,
+                 ext_name=''):
     """builds last benefits dict by finding benefit of repairing each link last"""
     if relax:
         ext_name = '_relax'
@@ -179,7 +173,7 @@ def last_benefit(
         ext_name = ext_name
     fname = before.save_dir + '/last_benefit_dict' + ext_name
 
-    # For each bridge, find the effect on TSTT when that bridge is removed while keeping others
+    # For each bridge, find the effect on TSTT when that bridge is repaired last
     if not os.path.exists(fname + extension):
         last_b = {}
         not_fixed = []
@@ -199,7 +193,8 @@ def last_benefit(
     return last_b
 
 
-def first_benefit(after, links_to_remove, after_eq_tstt, relax=False, bsearch=False, ext_name=''):
+def first_benefit(after, links_to_remove, after_eq_tstt, relax=False, bsearch=False,
+                  ext_name=''):
     """builds first benefits dict by finding benefit of repairing each link first"""
     if relax:
         ext_name = '_relax'
@@ -231,7 +226,8 @@ def first_benefit(after, links_to_remove, after_eq_tstt, relax=False, bsearch=Fa
     return first_b, elapsed
 
 
-def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False, ext_name=''):
+def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
+                ext_name=''):
     """creates network and solves for tstt after the damage and before any repairs"""
     if relax:
         ext_name = '_relax'
@@ -255,8 +251,8 @@ def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
         if isinstance(mc_weights, list):
             test_net = deepcopy(net_after)
             test_net.mc_weights = 1
-            after_eq_tstt_mcunw, __, __ = solve_UE(net=test_net, eval_seq=True, warm_start=False,
-                    multiclass=True)
+            after_eq_tstt_mcunw, __, __ = solve_UE(net=test_net, eval_seq=True,
+                    warm_start=False, multiclass=True)
 
         global memory
         memory[frozenset(net_after.not_fixed)] = after_eq_tstt
@@ -311,10 +307,10 @@ def state_before(
         if isinstance(mc_weights, list):
             test_net = deepcopy(net_before)
             test_net.mc_weights = 1
-            before_eq_tstt_mcunw, __, __ = solve_UE(net=test_net, eval_seq=True, warm_start=False,
-                    multiclass=True)
-        before_eq_tstt, __, __ = solve_UE(net=net_before, eval_seq=True, warm_start=False,
-                flows=True, initial=True)
+            before_eq_tstt_mcunw, __, __ = solve_UE(net=test_net, eval_seq=True,
+                    warm_start=False, multiclass=True)
+        before_eq_tstt, __, __ = solve_UE(net=net_before, eval_seq=True,
+                warm_start=False, flows=True, initial=True)
 
         global memory
         memory[frozenset(net_before.not_fixed)] = before_eq_tstt
@@ -390,7 +386,7 @@ def find_approx(approx, damaged_links, net_after, last_b, first_b):
     average first-order effects. If approx==3, uses exact first and last
     effects, and samples for middle values only"""
     X_train = []
-    y_train = []
+    Y_train = []
     Z_train = [0]*len(damaged_links)
     for i in range(len(damaged_links)):
         Z_train[i] = []
@@ -405,7 +401,7 @@ def find_approx(approx, damaged_links, net_after, last_b, first_b):
         state = [damaged_links.index(i) for i in k]
         pattern[(state)] = 0
         X_train.append(pattern)
-        y_train.append(v)
+        Y_train.append(v)
         preprocessing_num_tap += 1
 
     ns = 1
@@ -440,10 +436,11 @@ def find_approx(approx, damaged_links, net_after, last_b, first_b):
                 except:
                     continue
             else:
-                TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links,
+                                           eval_seq=True)
                 preprocessing_num_tap += tap
                 X_train.append(pattern)
-                y_train.append(TSTT)
+                Y_train.append(TSTT)
 
             for el in range(len(pattern)):
                 new_pattern = np.zeros(card_P)
@@ -470,7 +467,7 @@ def find_approx(approx, damaged_links, net_after, last_b, first_b):
                         eval_seq=True)
                     preprocessing_num_tap += tap
                     X_train.append(new_pattern)
-                    y_train.append(new_TSTT)
+                    Y_train.append(new_TSTT)
                 Z_train[el].append(abs(new_TSTT - TSTT))
                 if mid and approx==3:
                     alt_Z_train[el].append(abs(new_TSTT - TSTT))
@@ -488,12 +485,13 @@ def find_approx(approx, damaged_links, net_after, last_b, first_b):
     return Z_bar, alt_Z_bar, preprocessing_num_tap
 
 
-def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b, first_b):
+def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last_b,
+                   first_b):
     """uses sampling adapted from that described in Rey et al. 2019 to find
     approximated average first-order effects for EACH position in the repair
     sequence"""
     X_train = []
-    y_train = []
+    Y_train = []
     Z_train = [0]*len(damaged_links)
     for i in range(len(damaged_links)):
         Z_train[i] = []
@@ -535,10 +533,11 @@ def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
                 if count >= card_P:
                     break
 
-            TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+            TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links,
+                                       eval_seq=True)
             preprocessing_num_tap += tap
             X_train.append(pattern)
-            y_train.append(TSTT)
+            Y_train.append(TSTT)
 
             for el in range(len(pattern)):
                 new_pattern = np.zeros(card_P)
@@ -553,8 +552,8 @@ def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
                 new_pattern[(state)] = 1
 
                 if stage > 0 and stage < card_P - 1:
-                    if any((new_pattern is test) or (new_pattern == test).all() for test in
-                            X_train):
+                    if any((new_pattern is test) or (new_pattern == test).all() for test
+                            in X_train):
                         try:
                             new_TSTT = Y_train[X_train.index(new_pattern)]
                             Z_train[el].append(abs(new_TSTT - TSTT))
@@ -562,11 +561,11 @@ def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
                         except:
                             pass
                     else:
-                        new_TSTT, tap, __ = eval_state(new_state, net_after, damaged_links,
-                            eval_seq=True)
+                        new_TSTT, tap, __ = eval_state(new_state, net_after,
+                                damaged_links, eval_seq=True)
                         preprocessing_num_tap += tap
                         X_train.append(new_pattern)
-                        y_train.append(new_TSTT)
+                        Y_train.append(new_TSTT)
                         Z_train[el].append(abs(new_TSTT - TSTT))
                         alt_Z_train[stage-1][el].append(abs(new_TSTT - TSTT))
 
@@ -581,7 +580,7 @@ def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
                 state = [damaged_links.index(i) for i in temp_state]
                 pattern[(state)] = 1
 
-                if any((pattern is test) or (pattern == test).all() for test in X_train):
+                if any((pattern is test) or (pattern==test).all() for test in X_train):
                     try:
                         TSTT = Y_train[X_train.index(pattern)]
                     except:
@@ -589,33 +588,35 @@ def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
                                 eval_seq=True)
                         preprocessing_num_tap += tap
                         X_train.append(pattern)
-                        y_train.append(TSTT)
+                        Y_train.append(TSTT)
                 else:
-                    TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                    TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links,
+                                               eval_seq=True)
                     preprocessing_num_tap += tap
                     X_train.append(pattern)
-                    y_train.append(TSTT)
+                    Y_train.append(TSTT)
 
                 new_pattern = np.zeros(card_P)
                 new_state = deepcopy(temp_state)
                 new_state.append(damaged_links[el])
                 state = [damaged_links.index(i) for i in new_state]
                 new_pattern[(state)] = 1
-                if any((new_pattern is test) or (new_pattern == test).all() for test in X_train):
+                if any((new_pattern is test) or (new_pattern == test).all() for test
+                        in X_train):
                     try:
                         new_TSTT = Y_train[X_train.index(new_pattern)]
                     except:
-                        new_TSTT, tap, __ = eval_state(new_state, net_after, damaged_links,
-                                eval_seq=True)
+                        new_TSTT, tap, __ = eval_state(new_state, net_after,
+                                damaged_links, eval_seq=True)
                         preprocessing_num_tap += tap
                         X_train.append(new_pattern)
-                        y_train.append(new_TSTT)
+                        Y_train.append(new_TSTT)
                 else:
                     new_TSTT, tap, __ = eval_state(new_state, net_after, damaged_links,
                             eval_seq=True)
                     preprocessing_num_tap += tap
                     X_train.append(new_pattern)
-                    y_train.append(new_TSTT)
+                    Y_train.append(new_TSTT)
                 Z_train[el].append(abs(new_TSTT - TSTT))
                 alt_Z_train[k-1][el].append(abs(new_TSTT - TSTT))
 
@@ -630,7 +631,7 @@ def find_deltaTSTT(damaged_links, net_after, after_eq_tstt, before_eq_tstt, last
 def ML_preprocess(damaged_links, net_after):
     """trains a TensorFlow model to predict tstt from the binary repair state"""
     X_train = []
-    y_train = []
+    Y_train = []
     Z_train = [0]*len(damaged_links)
     for i in range(len(damaged_links)):
         Z_train[i] = []
@@ -643,7 +644,7 @@ def ML_preprocess(damaged_links, net_after):
         state = [damaged_links.index(i) for i in k]
         pattern[(state)] = 0
         X_train.append(pattern)
-        y_train.append(v)
+        Y_train.append(v)
         preprocessing_num_tap += 1
     print(str(preprocessing_num_tap)+' patterns initially stored')
 
@@ -665,10 +666,11 @@ def ML_preprocess(damaged_links, net_after):
             if any((pattern is test) or (pattern == test).all() for test in X_train):
                 pass
             else:
-                TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links, eval_seq=True)
+                TSTT, tap, __ = eval_state(temp_state, net_after, damaged_links,
+                                           eval_seq=True)
                 preprocessing_num_tap += tap
                 X_train.append(pattern)
-                y_train.append(TSTT)
+                Y_train.append(TSTT)
 
                 for el in range(len(pattern)):
                     new_pattern = np.zeros(len(damaged_links))
@@ -680,15 +682,15 @@ def ML_preprocess(damaged_links, net_after):
                     state = [damaged_links.index(i) for i in new_state]
                     new_pattern[(state)] = 1
 
-                    if any((new_pattern is test) or (new_pattern == test).all() for test in
-                            X_train):
+                    if any((new_pattern is test) or (new_pattern == test).all() for test
+                           in X_train):
                         pass
                     else:
-                        new_TSTT, tap, __ = eval_state(new_state, net_after, damaged_links,
-                            eval_seq=True)
+                        new_TSTT, tap, __ = eval_state(new_state, net_after,
+                                damaged_links, eval_seq=True)
                         preprocessing_num_tap += tap
                         X_train.append(new_pattern)
-                        y_train.append(new_TSTT)
+                        Y_train.append(new_TSTT)
                         Z_train[el].append(abs(new_TSTT - TSTT))
 
     Z_bar = np.zeros(len(damaged_links))
@@ -698,22 +700,22 @@ def ML_preprocess(damaged_links, net_after):
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     from tensorflow import keras
 
-    c = list(zip(X_train, y_train))
+    c = list(zip(X_train, Y_train))
     random.shuffle(c)
     X_train, y_train = zip(*c)
 
     X_train_full = np.array(X_train)
-    y_train_full = np.array(y_train)
+    Y_train_full = np.array(Y_train)
 
-    meany = np.mean(y_train_full)
-    stdy = np.std(y_train_full)
-    y_train_full = (y_train_full - meany) / stdy
+    meany = np.mean(Y_train_full)
+    stdy = np.std(Y_train_full)
+    Y_train_full = (Y_train_full - meany) / stdy
 
     cutt = int(X_train_full.shape[0] * 0.1)
     X_train = X_train_full[cutt:]
-    y_train = y_train_full[cutt:]
+    Y_train = Y_train_full[cutt:]
     X_valid = X_train_full[:cutt]
-    y_valid = y_train_full[:cutt]
+    Y_valid = Y_train_full[:cutt]
 
     model = keras.models.Sequential()
     model.add(keras.layers.Dense(
@@ -727,8 +729,8 @@ def ML_preprocess(damaged_links, net_after):
     early_stopping_cb = keras.callbacks.EarlyStopping(patience=30)
 
 
-    history = model.fit(X_train, y_train, validation_data=(
-        X_valid, y_valid), epochs=1000, verbose=0, callbacks=[early_stopping_cb])
+    history = model.fit(X_train, Y_train, validation_data=(
+        X_valid, Y_valid), epochs=1000, verbose=0, callbacks=[early_stopping_cb])
 
     # Tests
     state = random.sample(damaged_links, 1)
@@ -737,8 +739,8 @@ def ML_preprocess(damaged_links, net_after):
     pattern = np.zeros(len(damaged_links))
     pattern[(state)] = 1
     predicted_TSTT = model.predict(pattern.reshape(1, -1)) * stdy + meany
-    print('Test 1: predicted tstt vs real tstt, percent error:', predicted_TSTT[0][0], TSTT,
-        (predicted_TSTT[0][0]-TSTT)/TSTT*100)
+    print('Test 1: predicted tstt vs real tstt, percent error:', predicted_TSTT[0][0],
+          TSTT, (predicted_TSTT[0][0]-TSTT)/TSTT*100)
 
     state = random.sample(damaged_links, 4)
     TSTT, tap, __ = eval_state(state, net_after, damaged_links)
@@ -746,14 +748,15 @@ def ML_preprocess(damaged_links, net_after):
     pattern = np.zeros(len(damaged_links))
     pattern[(state)] = 1
     predicted_TSTT = model.predict(pattern.reshape(1, -1)) * stdy + meany
-    print('Test 2: predicted tstt vs real tstt, percent error:', predicted_TSTT[0][0], TSTT,
-        (predicted_TSTT[0][0]-TSTT)/TSTT*100)
+    print('Test 2: predicted tstt vs real tstt, percent error:', predicted_TSTT[0][0],
+          TSTT, (predicted_TSTT[0][0]-TSTT)/TSTT*100)
 
     return model, meany, stdy, Z_bar, preprocessing_num_tap
 
 
-def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=1):
-    """starts at bfs (greedy or importance) and conducts simulated annealling to find solution"""
+def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links,
+               num_crews=1):
+    """starts at bfs (greedy or IF) and conducts simulated annealling to get solution"""
     start = time.time()
     fname = net_after.save_dir + '/sim_anneal_solution'
     num_runs = 1
@@ -806,23 +809,26 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                     swap = nextord[idx]
                     nextord.insert(idx+1,el)
 
-                    # Get tstt before fixing el or swap, then tstt if fixing each first to find
-                    # difference in total area
+                    # Get tstt before fixing el or swap, then tstt if fixing each first
+                    # to find difference in total area
                     startstate = current[:idx]
                     startTSTT, tap, __ = eval_state(startstate, curnet, damaged_links,
                             eval_seq=True)
                     tap_solved += tap
 
                     endstate = current[:idx+2]
-                    endTSTT, tap, __ = eval_state(endstate, curnet, damaged_links, eval_seq=True)
+                    endTSTT, tap, __ = eval_state(endstate, curnet, damaged_links,
+                                                  eval_seq=True)
                     tap_solved += tap
 
                     elstate = current[:idx+1]
-                    elTSTT, tap, __ = eval_state(elstate, curnet, damaged_links, eval_seq=True)
+                    elTSTT, tap, __ = eval_state(elstate, curnet, damaged_links,
+                                                 eval_seq=True)
                     tap_solved += tap
 
                     swapstate = nextord[:idx+1]
-                    swapTSTT, tap, __ = eval_state(swapstate, curnet, damaged_links, eval_seq=True)
+                    swapTSTT, tap, __ = eval_state(swapstate, curnet, damaged_links,
+                                                   eval_seq=True)
                     tap_solved += tap
 
                     nextcost = deepcopy(curcost)
@@ -850,13 +856,14 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                             sa_time_list.append(time.time()-start)
                             sa_OBJ_list.append(deepcopy(best_cost))
                         lastMvmt = t
-                        print('On iteration {}, new best solution cost is {} with sequence \
-                              {}'.format(t,best_cost,best_soln))
+                        print('On iteration {}, new best solution cost is {} with \
+                              sequence {}'.format(t, best_cost, best_soln))
 
                     if run > 0 and t >= 1.2 * len(current)**2.5:
                         ratio = fail/t
-                        print('Finished run {} on iteration {} with ratio {} with best solution \
-                              found on iteration {}'.format(run+1,t,ratio,lastMvmt))
+                        print('Finished run {} on iteration {} with ratio {} with best \
+                              solution found on iteration {}'.format(run+1, t, ratio,
+                                                                     lastMvmt))
                         if run != num_runs-1:
                             if best_cost < final_cost:
                                 final_soln = deepcopy(best_soln)
@@ -868,8 +875,8 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                         break
                 if run == 0:
                     ratio = fail/t
-                    print('Finished on iteration {} with ratio {} with best solution found on \
-                          iteration {}'.format(t,ratio,lastMvmt))
+                    print('Finished on iteration {} with ratio {} with best solution \
+                          found on iteration {}'.format(t, ratio, lastMvmt))
                     if best_cost < final_cost:
                         final_soln = deepcopy(best_soln)
                         final_cost = deepcopy(best_cost)
@@ -906,8 +913,9 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                     test1, __, __, __ = eval_sequence(curnet, current, after_eq_tstt,
                             before_eq_tstt, num_crews=num_crews)
                     if best_cost < test1:
-                        print('Inaccuracy in new best soln: ' + str(test1-curcost) + ', test1 = '
-                              + str(test1) + ', curcost = ' + str(curcost) + '. Do not use.')
+                        print('Inaccuracy in new best soln: ' + str(test1-curcost)
+                              + ', test1 = ' + str(test1) + ', curcost = '
+                              + str(curcost) + '. Do not use.')
                     else:
                         best_soln = deepcopy(current)
                         best_cost = deepcopy(curcost)
@@ -915,15 +923,15 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
                             sa_time_list.append(time.time()-start)
                             sa_OBJ_list.append(deepcopy(best_cost))
                         lastMvmt = t
-                        print('New best solution cost is ' + str(best_cost) + ' with sequence '
-                              + str(best_soln))
+                        print('New best solution cost is ' + str(best_cost)
+                              + ' with sequence ' + str(best_soln))
 
                 if t % 128 == 0:
                     ratio = fail/t
                     print('Iteration ' + str(t) + ', ratio ' + str(ratio))
             ratio = fail/t
-            print('Finished on iteration {} with ratio {} with best solution found on iteration \
-                  {}'.format(t,ratio,lastMvmt))
+            print('Finished on iteration {} with ratio {} with best solution found on \
+                  iteration {}'.format(t, ratio, lastMvmt))
 
         elapsed = time.time() - start
         path = best_soln
@@ -932,12 +940,12 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num
             sa_time_list.append(elapsed)
             sa_OBJ_list.append(deepcopy(best_cost))
 
-        test2, __, __, __ = eval_sequence(curnet, best_soln, after_eq_tstt, before_eq_tstt,
-            num_crews=num_crews)
+        test2, __, __, __ = eval_sequence(curnet, best_soln, after_eq_tstt,
+                before_eq_tstt, num_crews=num_crews)
 
         if abs(test2-bound)> 5:
-            print('Inaccuracy in best soln: ' + str(test2-bound) + ', test2 = ' + str(test2)
-                  + ', bound = ' + str(bound))
+            print('Inaccuracy in best soln: ' + str(test2-bound) + ', test2 = '
+                  + str(test2) + ', bound = ' + str(bound))
         bound = test2
         elapsed += greedy_res[1] + importance_res[1] + 2*evaluation_time
         tap_solved += greedy_res[2] + num_broken - 1
@@ -1154,7 +1162,8 @@ def SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
     return [bound, elapsed, tap_solved], path
 
 
-def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
+def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt,
+                               time_net_before):
     """simple heuristic which orders links based on predamage flow"""
     start = time.time()
 
@@ -1176,8 +1185,8 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
         if_importance = if_importance[::-1]
 
         elapsed = time.time() - start + time_net_before
-        bound, eval_taps, __, __ = eval_sequence(if_net, path, after_eq_tstt, before_eq_tstt,
-            if_dict, importance=True, num_crews=num_crews)
+        bound, eval_taps, __, __ = eval_sequence(if_net, path, after_eq_tstt,
+                before_eq_tstt, if_dict, importance=True, num_crews=num_crews)
         tap_solved = 1
 
         save(fname + '_obj', bound)
@@ -1194,7 +1203,8 @@ def importance_factor_solution(net_before, after_eq_tstt, before_eq_tstt, time_n
     return [bound, elapsed, tap_solved], path
 
 
-def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_crews=1, calc_ff=False):
+def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_crews=1,
+                calc_ff=False):
     """enumerates all possible sequences to find the lowest overall tstt impacts"""
     net = deepcopy(net_after)
     start = time.time()
@@ -1250,12 +1260,14 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_c
         bound, __, __, __ = eval_sequence(
             seq_net, min_seq, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
         if calc_ff:
-            print('Lower bound using free flow times with {} crew(s): {}, path: {}'.format(
+            print('Lower bound using free flow with {} crew(s): {}, path: {}'.format(
                   num_crews, bound, min_seq))
         elif is_approx:
-            print('ML brute force objective with {} crew(s): {}, path: {}'.format(num_crews, bound, min_seq))
+            print('ML brute force objective with {} crew(s): {}, path: {}'.format(
+                num_crews, bound, min_seq))
         else:
-            print('Optimal objective with {} crew(s): {}, optimal path: {}'.format(num_crews, bound, min_seq))
+            print('Optimal objective with {} crew(s): {}, optimal path: {}'.format(
+                num_crews, bound, min_seq))
         print('Run time break down: upper algo, prep for taps, run taps: ', times)
 
         save(fname + '_obj', bound)
@@ -1302,7 +1314,8 @@ def mip_bf(mip, net_before, after_eq_tstt, before_eq_tstt, time_before, vecTSTT)
         m.addConstrs((y[t,:].sum()==1 for t in range(N)), 'stages')
         m.addConstrs((y[:,b].sum()==1 for b in range(N)), 'links')
         m.addConstrs((z[0,b]==0 for b in range(N)), 'state0')
-        m.addConstrs((y[0:t,b].sum()==z[t,b] for t in range(1,N) for b in range(N)), 'states')
+        m.addConstrs((y[0:t,b].sum()==z[t,b] for t in range(1,N) for b in range(N)),
+            'states')
         m.addConstrs(((ze[t,s]==1) >> (sum(z[t,b]*2**(N-1-b) for b in range(N))==s)
                       for t in range(N) for s in range(2**N)),'expstates')
         m.addConstrs((ze[t,:].sum()==1 for t in range(N)), 'extra')
@@ -1346,7 +1359,7 @@ def mip_bf(mip, net_before, after_eq_tstt, before_eq_tstt, time_before, vecTSTT)
 
 
 def lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, first_b, bb_time):
-    """heuristic which orders links for repair based on effect on tstt if repaired first"""
+    """heuristic which orders links for repair based on tstt effect if repaired first"""
     start = time.time()
     ordered_days = []
     orderedb_benefits = []
@@ -1374,8 +1387,10 @@ def lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, first_b, bb_
     return [bound, elapsed, tap_solved], lzg_order
 
 
-def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after):
-    """heuristic which orders links for repair at each step based on immediate effect on tstt"""
+def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before,
+                     time_net_after):
+    """heuristic which orders links for repair at each stage based on immediate effect
+    on tstt"""
     start = time.time()
     tap_solved = 0
     fname = net_after.save_dir + '/greedy_solution'
@@ -1457,8 +1472,8 @@ def greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt, time_net_before, 
     return [bound, elapsed, tap_solved], path
 
 
-def greedy_heuristic_mult(
-        net_after, after_eq_tstt, before_eq_tstt, time_net_before, time_net_after, num_crews):
+def greedy_heuristic_mult(net_after, after_eq_tstt, before_eq_tstt, time_net_before,
+                          time_net_after, num_crews):
     """multicrew heuristic which orders links for repair at each step based on
     immediate effect on tstt if that link completed before any additional links"""
     start = time.time()
@@ -1493,7 +1508,8 @@ def greedy_heuristic_mult(
 
             for link in eligible_to_add:
                 added = [link]
-                not_fixed = set(damaged_dict).difference(set(crew_order_list[:baseidx+1]))
+                not_fixed = set(damaged_dict).difference(
+                    set(crew_order_list[:baseidx+1]))
                 not_fixed.difference_update(set(added))
                 test_net.not_fixed = set(not_fixed)
 
@@ -1521,7 +1537,7 @@ def greedy_heuristic_mult(
                 ordered_days.append(value)
                 orderedb_benefits.append(new_bb[key])
 
-            __, __, order = orderlists(orderedb_benefits, ordered_days, rem_keys=sorted_d)
+            __, __, order = orderlists(orderedb_benefits,ordered_days,rem_keys=sorted_d)
 
             if i == 0:
                 links_to_add = []
@@ -1561,7 +1577,8 @@ def greedy_heuristic_mult(
                     crew_order_list.append(link_to_add)
                 else:
                     crew_order_list.insert(len(crew_order_list) - num_crews +
-                        sorted(crews).index(crews[which_crew[link_to_add]]) + 1 ,link_to_add)
+                        sorted(crews).index(crews[which_crew[link_to_add]])+1,
+                        link_to_add)
                 path.append(link_to_add)
 
                 if completion[link_to_add] == min(crews):
@@ -1571,7 +1588,8 @@ def greedy_heuristic_mult(
                 else:
                     base = [k for k, v in completion.items() if v==min(crews)][0]
                     baseidx = crew_order_list.index(base)
-                    not_fixed = set(damaged_dict).difference(set(crew_order_list[:baseidx+1]))
+                    not_fixed = set(damaged_dict).difference(
+                        set(crew_order_list[:baseidx+1]))
                     test_net.not_fixed = set(not_fixed)
                     after_, __, __ = solve_UE(net=test_net, eval_seq=True)
                     memory[frozenset(test_net.not_fixed)] = after_
@@ -1604,7 +1622,7 @@ def greedy_heuristic_mult(
 
 
 def make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult):
-    """creates artificial links with travel time and length 10x before eq shortest path"""
+    """creates artificial links with travel time 10x before eq shortest path"""
     start = time.time()
     art_net = Network(NETFILE, TRIPFILE)
     art_net.netfile = NETFILE
@@ -1650,18 +1668,19 @@ def make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult):
     for od in art_net.ODpair.values():
         if od.origin not in origin_list:
             origin_list.append(od.origin)
-            postbacklink[od.origin], postcost[od.origin] = art_net.shortestPath(od.origin)
+            postbacklink[od.origin], postcost[od.origin] = art_net.shortestPath(
+                od.origin)
             if postcost[od.origin][od.destination] >= 99999:
                 count += 1
-            if (od.origin != od.destination and
-                    postcost[od.origin][od.destination] < 10*cost[od.origin][od.destination]):
+            if (od.origin != od.destination and postcost[od.origin][od.destination]
+                    < 10*cost[od.origin][od.destination]):
                 ODID = str(od.origin) + '->' + str(od.destination)
                 del art_links[ODID]
         else:
             if postcost[od.origin][od.destination] >= 99999:
                 count += 1
-            if (od.origin != od.destination and
-                    postcost[od.origin][od.destination] < 10*cost[od.origin][od.destination]):
+            if (od.origin != od.destination and postcost[od.origin][od.destination]
+                    < 10*cost[od.origin][od.destination]):
                 ODID = str(od.origin) + '->' + str(od.destination)
                 del art_links[ODID]
     print('Created {} artificial links.'.format(len(art_links)))
@@ -1763,52 +1782,54 @@ def plot_nodes_links(save_dir, net, damaged_links, coord_dict, names = False,
     plt.close(fig)
 
 
-def plot_time_OBJ(
-        save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None, sa_OBJ_list=None):
+def plot_time_OBJ(save_dir, bs_time_list=None, bs_OBJ_list=None, sa_time_list=None,
+                  sa_OBJ_list=None):
     """function to plot running time vs OBJ progression"""
 
     fig, ax = plt.subplots(figsize=(8,6))
     jet = cm.get_cmap('jet', reps)
-    if bs_time_list != None:
+    if bs_time_list is not None:
         bs_indices = [i for i, time in enumerate(bs_time_list) if time == 0]
         bs_indices.append(len(bs_time_list))
         if num_broken < 16:
             for rep in range(reps):
                 plt.step(bs_time_list[bs_indices[rep]:bs_indices[rep+1]],
-                    (1-np.divide(bs_OBJ_list[bs_indices[rep] : bs_indices[rep+1]],
-                    bs_OBJ_list[bs_indices[rep]])) * 100, where='post', color=jet(rep/reps),
-                    label='beam search ' + str(rep+1))
+                    (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],
+                    bs_OBJ_list[bs_indices[rep]])) * 100, where='post',
+                    color=jet(rep/reps), label='beam search ' + str(rep+1))
         else:
             for rep in range(reps):
-                plt.step(np.divide(bs_time_list[bs_indices[rep] : bs_indices[rep+1]],60),
-                    (1-np.divide(bs_OBJ_list[bs_indices[rep] : bs_indices[rep+1]],
-                    bs_OBJ_list[bs_indices[rep]])) * 100, where='post', color=jet(rep/reps),
-                    label='beam search ' + str(rep+1))
+                plt.step(np.divide(bs_time_list[bs_indices[rep]:bs_indices[rep+1]],60),
+                    (1-np.divide(bs_OBJ_list[bs_indices[rep]:bs_indices[rep+1]],
+                    bs_OBJ_list[bs_indices[rep]])) * 100, where='post',
+                    color=jet(rep/reps), label='beam search ' + str(rep+1))
 
-    if sa_time_list != None:
+    if sa_time_list is not None:
         sa_indices = [i for i, time in enumerate(sa_time_list) if time == 0]
         sa_indices.append(len(sa_time_list))
         if num_broken < 16:
             for rep in range(reps):
-                plt.step(sa_time_list[sa_indices[rep] : sa_indices[rep+1]],
-                    (1-np.divide(sa_OBJ_list[sa_indices[rep] : sa_indices[rep+1]],
-                    sa_OBJ_list[sa_indices[rep]])) * 100, where='post', color=jet(rep/reps),
-                    linestyle='dashed', label='sim anneal ' + str(rep+1))
+                plt.step(sa_time_list[sa_indices[rep]:sa_indices[rep+1]],
+                    (1-np.divide(sa_OBJ_list[sa_indices[rep]:sa_indices[rep+1]],
+                    sa_OBJ_list[sa_indices[rep]])) * 100, where='post',
+                    color=jet(rep/reps), linestyle='dashed',
+                    label='sim anneal ' + str(rep+1))
         else:
             for rep in range(reps):
-                plt.step(np.divide(sa_time_list[sa_indices[rep] : sa_indices[rep+1]], 60),
-                    (1 - np.divide(sa_OBJ_list[sa_indices[rep] : sa_indices[rep+1]],
-                    sa_OBJ_list[sa_indices[rep]])) * 100, where='post', color=jet(rep/reps),
-                    linestyle='dashed', label='sim anneal ' + str(rep+1))
+                plt.step(np.divide(sa_time_list[sa_indices[rep]:sa_indices[rep+1]], 60),
+                    (1 - np.divide(sa_OBJ_list[sa_indices[rep]:sa_indices[rep+1]],
+                    sa_OBJ_list[sa_indices[rep]])) * 100, where='post',
+                    color=jet(rep/reps), linestyle='dashed',
+                    label='sim anneal ' + str(rep+1))
 
     if num_broken < 16:
         plt.title('Runtime (seconds) vs OBJ function improvement (%) for '
-            + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links)) + ' damaged links',
-            fontsize=10)
+            + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links))
+            + ' damaged links', fontsize=10)
     else:
         plt.title('Runtime (minutes) vs OBJ function improvement (%) for '
-            + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links)) + ' damaged links',
-            fontsize=10)
+            + NETWORK.split('/')[-1] + ' with ' + str(len(damaged_links))
+            + ' damaged links', fontsize=10)
     plt.legend(ncol=2)
 
     save_fig(save_dir, 'timevsOBJ', tight_layout=True)
@@ -1835,10 +1856,10 @@ if __name__ == '__main__':
         alt_crews = list(args.num_crews[1:])
     tables = args.tables
     graphing = args.graphing
-    scenario_file = args.scenario
+    #scenario_file = args.scenario
     before_after = args.onlybeforeafter
     output_sequences = args.output_sequences
-    strength = args.strength
+    #strength = args.strength
     full = args.full
     rand_gen = args.random
     location = args.loc
@@ -1892,7 +1913,6 @@ if __name__ == '__main__':
         net_name = 'berlin-mitte-center2'
     if net_name == 'Berlin-Mitte-Center3':
         net_name = 'berlin-mitte-center3'
-    JSONFILE = os.path.join(NETWORK, net_name.lower() + '.geojson')
     NETFILE = os.path.join(NETWORK, net_name + "_net.tntp")
 
     TRIPFILE = os.path.join(NETWORK, net_name + "_trips.tntp")
@@ -1900,8 +1920,8 @@ if __name__ == '__main__':
         TRIPFILE = list()
         i=1
         while True:
-            if os.path.exists(os.path.join(NETWORK, net_name + "_trips" + str(i) + ".tntp")):
-                TRIPFILE.append(os.path.join(NETWORK, net_name + "_trips" + str(i) + ".tntp"))
+            if os.path.exists(os.path.join(NETWORK, net_name+"_trips"+str(i)+".tntp")):
+                TRIPFILE.append(os.path.join(NETWORK, net_name+"_trips"+str(i)+".tntp"))
                 i+=1
             else:
                 if TRIPFILE == []:
@@ -1937,9 +1957,9 @@ if __name__ == '__main__':
         global approx_params
         approx_params = None
 
-        #lb_gap = []
-        #lb_percent = []
-        #num_lb_fail = 0
+        lb_gap = []
+        lb_percent = []
+        num_lb_fail = 0
         for rep in range(reps):
             if damaged_dict_preset != '':
                 damaged_dict = load(damaged_dict_preset + '/' + 'damaged_dict')
@@ -2018,7 +2038,8 @@ if __name__ == '__main__':
                 G.add_nodes_from(np.arange(len(netg.node)) + 1)
                 edge_list = []
                 for alink in netg.link:
-                    edge_list.append((int(netg.link[alink].tail), int(netg.link[alink].head)))
+                    edge_list.append((int(netg.link[alink].tail),
+                                      int(netg.link[alink].head)))
                 G.add_edges_from(edge_list)
 
                 damaged_links = []
@@ -2030,7 +2051,7 @@ if __name__ == '__main__':
                 import geopy.distance
 
                 if NETWORK.find('SiouxFalls') >= 0:
-                    nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"),
+                    nodetntp = pd.read_csv(os.path.join(NETWORK, net_name+"_node.tntp"),
                         delimiter='\t')
                     coord_dict = {}
                     for index, row in nodetntp.iterrows():
@@ -2039,7 +2060,7 @@ if __name__ == '__main__':
                         coord_dict[row['Node']] = (lon, lat)
 
                 if NETWORK.find('Chicago-Sketch') >=0:
-                    nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"),
+                    nodetntp = pd.read_csv(os.path.join(NETWORK, net_name+"_node.tntp"),
                         delimiter='\t')
                     coord_dict = {}
                     for index, row in nodetntp.iterrows():
@@ -2048,14 +2069,15 @@ if __name__ == '__main__':
                         coord_dict[row['node']] = (lon, lat)
 
                 if NETWORK.find('Anaheim') >= 0:
-                    nodetntp = pd.read_json(os.path.join(NETWORK, 'anaheim_nodes.geojson'))
+                    nodetntp = pd.read_json(os.path.join(NETWORK,
+                                                         'anaheim_nodes.geojson'))
                     coord_dict = {}
                     for index, row in nodetntp.iterrows():
                         coord_dict[row['features']['properties']['id']] = row[
                             'features']['geometry']['coordinates']
 
                 if NETWORK.find('Berlin-Mitte-Center') >= 0:
-                    nodetntp = pd.read_csv(os.path.join(NETWORK, net_name + "_node.tntp"),
+                    nodetntp = pd.read_csv(os.path.join(NETWORK, net_name+"_node.tntp"),
                         delim_whitespace = True, skipinitialspace=True)
                     coord_dict = {}
                     for index, row in nodetntp.iterrows():
@@ -2091,15 +2113,15 @@ if __name__ == '__main__':
 
                     i = 0
                     while i <= int(math.floor(num_broken*2/3.0)) and len(distances)>0:
-                        another_node = random.choices(decoy, 1.0/np.array(distances)**location,
-                                                      k=1)[0]
-                        idx = decoy.index(another_node) # default location parameter is 3
+                        another_node = random.choices(decoy,
+                            1.0/np.array(distances)**location, k=1)[0]
+                        idx = decoy.index(another_node) # default location parameter: 3
                         del distances[idx]
                         del decoy[idx]
                         selected_nodes.append(another_node)
                         i += 1
 
-                    selected_indices = [all_nodes.index(ind) for ind in selected_nodes[1:]]
+                    selected_indices = [all_nodes.index(i) for i in selected_nodes[1:]]
                     print('Selected nodes: ', selected_nodes)
 
                     #create linkset
@@ -2137,11 +2159,11 @@ if __name__ == '__main__':
                         curlen = len(linkset)
 
                         if not fail:
-                            ij = random.choices(linkset, weights=np.exp(np.power(flow_on_links,
-                                                1 / 3.0)), k=1)[0]
+                            ij = random.choices(linkset, weights=np.exp(np.power(
+                                flow_on_links, 1 / 3.0)), k=1)[0]
                         else:
-                            ij = random.choices(linkset, weights=np.exp(np.power(flow_on_links,
-                                                1 / 4.0)), k=1)[0]
+                            ij = random.choices(linkset, weights=np.exp(np.power(
+                                flow_on_links, 1 / 4.0)), k=1)[0]
 
                         u = netg.link[ij].tail
                         v = netg.link[ij].head
@@ -2178,7 +2200,8 @@ if __name__ == '__main__':
                     weights = flow_on_links
                     while i < int(num_broken):
                         curlen = len(decoy)
-                        ij = random.choices(decoy, weights=np.exp(np.power(weights, 1/3.0)), k=1)[0]
+                        ij = random.choices(decoy, weights=np.exp(
+                                np.power(weights, 1/3.0)), k=1)[0]
                         u = netg.link[ij].tail
                         v = netg.link[ij].head
                         if NETWORK.find('Chicago-Sketch') >= 0:
@@ -2222,11 +2245,11 @@ if __name__ == '__main__':
 
                         data = line.split()
                         if len(data) < 11 or data[10] != ';':
-                            print("Link data line not formatted properly:\n '%s'" % line)
+                            print("Link data line not formatted properly:\n '%s'"% line)
                             raise utils.BadFileFormatException
 
                         # Create link
-                        linkID = '(' + str(data[0]).strip() + "," + str(data[1]).strip() + ')'
+                        linkID = '('+str(data[0]).strip()+","+str(data[1]).strip()+')'
                         net.linkDict[linkID] = {}
                         net.linkDict[linkID]['length-cap'] = (float(data[2])
                             * np.cbrt(float(data[3])))
@@ -2238,7 +2261,8 @@ if __name__ == '__main__':
                         damaged_dict[lnk] = np.random.gamma(4*2, 7*2, 1)[0]
 
                     elif net.linkDict[lnk]['length-cap'] > np.quantile(len_links, 0.75):
-                        damaged_dict[lnk] = np.random.gamma(7*np.sqrt(2), 7*np.sqrt(2), 1)[0]
+                        damaged_dict[lnk] = np.random.gamma(7*np.sqrt(2), 7*np.sqrt(2),
+                                                            1)[0]
 
                     elif net.linkDict[lnk]['length-cap'] > np.quantile(len_links, 0.5):
                         damaged_dict[lnk] = np.random.gamma(12, 7, 1)[0]
@@ -2269,41 +2293,46 @@ if __name__ == '__main__':
 
                 os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
 
-
             else:
-                damaged_dict_ = get_broken_links(JSONFILE, scenario_file)
+                print('No scenario file available.')
+                raise Exception
 
-                memory = {}
-                net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights, demand_mult=demand_mult)
+            #     damaged_dict_ = get_broken_links(JSONFILE, scenario_file)
 
-                all_links = damaged_dict_.keys()
-                damaged_links = np.random.choice(list(all_links), num_broken, replace=False)
-                removals = []
+            #     memory = {}
+            #     net = create_network(NETFILE, TRIPFILE, mc_weights=mc_weights,
+            #                          demand_mult=demand_mult)
 
-                damaged_dict = {}
+            #     all_links = damaged_dict_.keys()
+            #     damaged_links = np.random.choice(list(all_links), num_broken,
+            #             replace=False)
+            #     removals = []
 
-                for a_link in damaged_links:
-                    if a_link in removals:
-                        continue
-                    damaged_dict[a_link] = damaged_dict_[a_link]
+            #     damaged_dict = {}
 
-                del damaged_dict_
-                num_broken = len(damaged_dict)
+            #     for a_link in damaged_links:
+            #         if a_link in removals:
+            #             continue
+            #         damaged_dict[a_link] = damaged_dict_[a_link]
 
-                SCENARIO_DIR = os.path.join(NETWORK_DIR, strength)
-                ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
-                os.makedirs(ULT_SCENARIO_DIR, exist_ok=True)
+            #     del damaged_dict_
+            #     num_broken = len(damaged_dict)
 
-                repetitions = get_folders(ULT_SCENARIO_DIR)
-                if len(repetitions) == 0:
-                    max_rep = -1
-                else:
-                    num_scenario = [int(i) for i in repetitions]
-                    max_rep = max(num_scenario)
-                cur_scnario_num = max_rep + 1
+            #     SCENARIO_DIR = os.path.join(NETWORK_DIR, strength)
+            #     ULT_SCENARIO_DIR = os.path.join(SCENARIO_DIR, str(num_broken))
+            #     os.makedirs(ULT_SCENARIO_DIR, exist_ok=True)
 
-                ULT_SCENARIO_REP_DIR = os.path.join(ULT_SCENARIO_DIR, str(cur_scnario_num))
-                os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
+            #     repetitions = get_folders(ULT_SCENARIO_DIR)
+            #     if len(repetitions) == 0:
+            #         max_rep = -1
+            #     else:
+            #         num_scenario = [int(i) for i in repetitions]
+            #         max_rep = max(num_scenario)
+            #     cur_scnario_num = max_rep + 1
+
+            #     ULT_SCENARIO_REP_DIR = os.path.join(ULT_SCENARIO_DIR,
+            #             str(cur_scnario_num))
+            #     os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
 
 
             # Finalize damaged links into a list to maintain order of links
@@ -2319,22 +2348,24 @@ if __name__ == '__main__':
                 net_before, before_eq_tstt, _ = state_before(damaged_links, save_dir)
                 plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True)
                 print(net_name + ' with ' + str(num_broken) + ' broken bridges')
-                print('TSTT before disruption: {}, TSTT after disruption: {}'.format(before_eq_tstt,after_eq_tstt))
+                print('TSTT before disruption: {}, TSTT after disruption: {}'.format(
+                    before_eq_tstt,after_eq_tstt))
 
 
             elif output_sequences:
-                """ builds a dict (link names are keys) that contains attributes: duration,
-                importance factor, immediate benefit. Then solves to optimality, adds optimal
-                order of repair ahead of attributes (ie. '1' if repaired first) """
+                """ builds a dict (link names are keys) that contains attributes:
+                duration, importance factor, immediate benefit. Then solves to
+                optimality, adds optimal order of repair ahead of attributes (ie. '1'
+                if repaired first) """
 
                 memory = {}
-                art_link_dict = make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult)
+                art_link_dict = make_art_links(NETFILE,TRIPFILE,mc_weights,demand_mult)
 
-                net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
-                    real=True)
-                net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir,
-                    real=True)
-                first_b, bb_time = first_benefit(net_after, damaged_links, after_eq_tstt)
+                net_before, before_eq_tstt, time_net_before = state_before(
+                    damaged_links, save_dir, real=True)
+                net_after, after_eq_tstt, time_net_after = state_after(damaged_links,
+                    save_dir, real=True)
+                first_b, bb_time = first_benefit(net_after,damaged_links,after_eq_tstt)
                 last_b = last_benefit(net_before, damaged_links, before_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
                 if num_crews==1:
@@ -2343,9 +2374,11 @@ if __name__ == '__main__':
                 save(save_dir + '/upper_bound', upper_bound)
 
                 if damaged_dict_preset=='':
-                    plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True)
+                    plot_nodes_links(save_dir, netg, damaged_links, coord_dict,
+                                     names=True)
 
-                damaged_attributes = get_attributes(net_before, first_b, last_b, swapped_links)
+                damaged_attributes = get_attributes(net_before, first_b, last_b,
+                        swapped_links)
                 opt_obj, opt_soln, opt_elapsed, opt_num_tap, opt_times = brute_force(
                         net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
                 for el in range(num_broken):
@@ -2363,17 +2396,18 @@ if __name__ == '__main__':
 
             else:
                 memory = {}
-                art_link_dict = make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult)
+                art_link_dict = make_art_links(NETFILE,TRIPFILE,mc_weights,demand_mult)
 
-                net_before, before_eq_tstt, time_net_before = state_before(damaged_links, save_dir,
-                    real=True)
-                net_after, after_eq_tstt, time_net_after = state_after(damaged_links, save_dir,
-                    real=True)
-                first_b, bb_time = first_benefit(net_after, damaged_links, after_eq_tstt)
+                net_before, before_eq_tstt, time_net_before = state_before(
+                    damaged_links, save_dir, real=True)
+                net_after, after_eq_tstt, time_net_after = state_after(damaged_links,
+                    save_dir, real=True)
+                first_b, bb_time = first_benefit(net_after,damaged_links,after_eq_tstt)
                 last_b = last_benefit(net_before, damaged_links, before_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
                 if damaged_dict_preset=='':
-                    plot_nodes_links(save_dir, netg, damaged_links, coord_dict, names=True)
+                    plot_nodes_links(save_dir, netg, damaged_links, coord_dict,
+                                     names=True)
 
                 if num_crews==1:
                     start = time.time()
@@ -2395,24 +2429,27 @@ if __name__ == '__main__':
                             curdisc = (after_eq_tstt - before_eq_tstt)
                     HLB_res = [hlower_bound, time.time()-start, 2*num_broken+2]
 
-                print('before tstt: {}, after tstt: {}, total (single crew) duration: {}'.format(
-                      before_eq_tstt, after_eq_tstt, sum(damaged_dict.values())))
+                print('before tstt: {}, after tstt: {}, total (single crew) \
+                      duration: {}'.format(before_eq_tstt, after_eq_tstt,
+                                           sum(damaged_dict.values())))
                 print('Benefit from repairing each link first: ',first_b)
                 print('Benefit from repairing each link last: ',last_b)
                 print('Swapped links: ',swapped_links)
                 if num_crews==1:
-                    print('Simple upper bound on obj function (total travel delay): ', upper_bound)
-                    print('Heuristic lower bound on obj function (total travel delay): ',
-                          hlower_bound)
+                    print('Simple upper bound on obj function (total travel delay): ',
+                          upper_bound)
+                    print('Heuristic lower bound on obj function (total travel \
+                          delay): ', hlower_bound)
                 start = time.time()
-                __, __, __, __ = eval_sequence(net_after, hlower_seq, after_eq_tstt, before_eq_tstt,
-                    num_crews=num_crews, multiclass=multiclass)
+                __, __, __, __ = eval_sequence(net_after, hlower_seq, after_eq_tstt,
+                    before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
                 evaluation_time = time.time() - start
                 print('Time to evaluate a sequence: ', evaluation_time)
 
 
-                #['Simple UB','HLB','FF LB','OPT BF','ML BF','OPT IP','ML IP','DeltaTSTT',
-                # 'LASR','LAFO','AltLASR','SQG','LZG','IF','SPT','Sim Anneal','Beam Search']
+                #['Simple UB','HLB','FF LB','OPT BF','ML BF','OPT IP','ML IP',
+                # 'DeltaTSTT','LASR','LAFO','AltLASR','SQG','LZG','IF','SPT',
+                # 'Sim Anneal','Beam Search']
 
                 results = pd.DataFrame(columns=['Objective','Run Time','# TAP'])
                 res_seqs = pd.DataFrame(columns=range(1,num_broken+1))
@@ -2425,29 +2462,32 @@ if __name__ == '__main__':
                 if methods[pointer]=='FF LB':
                     FF_mem = {}
                     record_ff_net(net_after)
-                    results.loc[methods[pointer]], res_seqs.loc[methods[pointer]], ff_times = brute_force(
-                        net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews, calc_ff=calc_ff)
+                    (results.loc[methods[pointer]], res_seqs.loc[methods[pointer]],
+                        ff_times) = brute_force(net_after, after_eq_tstt,
+                        before_eq_tstt, num_crews=num_crews, calc_ff=calc_ff)
                     pointer += 1
 
-                memory1 = deepcopy(memory) # takes a snapshot of memory after only before, after, bb, wb
-                if methods[pointer]=='OPT BF': # find optimal sequence by brute force enumeration
-                    results.loc[methods[pointer]], res_seqs.loc[methods[pointer]], opt_times = brute_force(
+                memory1 = deepcopy(memory) # takes a snapshot of memory
+                if methods[pointer]=='OPT BF': # find optimal sequence by enumeration
+                    opt_res, res_seqs.loc[methods[pointer]], opt_times = brute_force(
                         net_after, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
-                    #if opt_res[0] < hlower_bound:
-                    #    num_lb_fail += 1
-                    #lb_gap.append(opt_res[0] - hlower_bound)
-                    #lb_percent.append((opt_res[0] - hlower_bound)/opt_res[0])
+                    results.loc[methods[pointer]] = opt_res
+                    if opt_res[0] < hlower_bound:
+                        num_lb_fail += 1
+                    lb_gap.append(opt_res[0] - hlower_bound)
+                    lb_percent.append((opt_res[0] - hlower_bound)/opt_res[0])
                     memory = deepcopy(memory1)
                     pointer += 1
-                if methods[pointer]=='ML BF': # brute force enumeration using values from ML model
+                if methods[pointer]=='ML BF': # enumeration using values from ML model
                     ML_mem = {}
                     ML_start = time.time()
-                    model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(damaged_links, net_after)
+                    model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(damaged_links,
+                                                                          net_after)
                     approx_params = (model, meany, stdy)
                     ML_time = time.time() - ML_start + 2*bb_time
                     print('Time to train ML model: '+str(ML_time))
-                    opt_res, opt_seq, opt_times = brute_force(net_after, after_eq_tstt, before_eq_tstt,
-                        is_approx=True, num_crews=num_crews)
+                    opt_res, opt_seq, opt_times = brute_force(net_after, after_eq_tstt,
+                        before_eq_tstt, is_approx=True, num_crews=num_crews)
                     opt_res[1] += ML_time
                     opt_res[2] += ML_num_tap
                     memory = deepcopy(memory1)
@@ -2455,10 +2495,10 @@ if __name__ == '__main__':
                     res_seqs.loc[methods[pointer]] = opt_seq
                     pointer += 1
 
-                if methods[pointer]=='OPT IP': # IP formulation using calculated TSTT values from TAP
+                if methods[pointer]=='OPT IP': # IP formulation using calculated TSTTs
                     vecTSTT, TSTTs_time, TSTT_num_tap = calc_all_TSTT(net_after)
-                    mip1_res, mip1_seq = mip_bf(1, net_before, after_eq_tstt, before_eq_tstt, TSTTs_time,
-                        vecTSTT)
+                    mip1_res, mip1_seq = mip_bf(1, net_before, after_eq_tstt,
+                        before_eq_tstt, TSTTs_time, vecTSTT)
                     mip1_res[2] += TSTT_num_tap
                     results.loc[methods[pointer]] = mip1_res
                     res_seqs.loc[methods[pointer]] = mip1_seq
@@ -2466,26 +2506,30 @@ if __name__ == '__main__':
                 if methods[pointer]=='ML IP': # IP formulation using ML TSTT values
                     if 'ML_BF' not in methods:
                         ML_start = time.time()
-                        model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(damaged_links, net_after)
+                        model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
+                            damaged_links, net_after)
                         approx_params = (model, meany, stdy)
                         ML_time = time.time() - ML_start + 2*bb_time
                         print('Time to train ML model: '+str(ML_time))
-                    vec_ML, ML_TSTTs_time = calc_all_ML(approx_params, damaged_links, memory)
-                    mip2_res, mip2_seq = mip_bf(2, net_before, after_eq_tstt, before_eq_tstt, ML_TSTTs_time,
-                        vec_ML)
-                    print('Time to find all ML TSTTs after training: '+str(ML_TSTTs_time - ML_time))
+                    vec_ML, ML_TSTTs_time = calc_all_ML(approx_params, damaged_links,
+                                                        memory)
+                    mip2_res, mip2_seq = mip_bf(2, net_before, after_eq_tstt,
+                                                before_eq_tstt, ML_TSTTs_time, vec_ML)
+                    print('Time to find all ML TSTTs after training: '
+                          + str(ML_TSTTs_time - ML_time))
                     mip2_res[2] += ML_num_tap
                     memory = deepcopy(memory1)
                     results.loc[methods[pointer]] = mip2_res
                     res_seqs.loc[methods[pointer]] = mip2_seq
                     pointer += 1
-                if methods[pointer]=='DeltaTSTT': # alternate IP formulation using estimated deltaTSTT[t,b]
+                if methods[pointer]=='DeltaTSTT':
+                    # alternate IP formulation using estimated deltaTSTT[t,b]
                     preprocess_st = time.time()
                     deltaTSTT, pre_num_tap = find_deltaTSTT(damaged_links, net_after,
                         after_eq_tstt, before_eq_tstt, last_b, first_b)
                     time_mip_before = time.time() - preprocess_st + 2*bb_time
-                    mip3_res, mip3_seq = mip_delta(net_before, after_eq_tstt, before_eq_tstt, time_mip_before,
-                        deltaTSTT)
+                    mip3_res, mip3_seq = mip_delta(net_before, after_eq_tstt,
+                        before_eq_tstt, time_mip_before, deltaTSTT)
                     mip3_res[2] += pre_num_tap
                     memory = deepcopy(memory1)
                     results.loc[methods[pointer]] = mip3_res
@@ -2494,23 +2538,25 @@ if __name__ == '__main__':
 
                 if methods[pointer]=='LASR': # Largest Average Smith Ratio
                     preprocess_st = time.time()
-                    Z_bar, alt_Z_bar, preprocessing_num_tap = find_approx(approx, damaged_links,
-                        net_after, last_b, first_b)
+                    Z_bar, alt_Z_bar, preprocessing_num_tap = find_approx(approx,
+                        damaged_links, net_after, last_b, first_b)
                     time_before = time.time() - preprocess_st + 2*bb_time
-                    LASR_res, LASR_seq, = LASR(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                    LASR_res, LASR_seq = LASR(net_before, after_eq_tstt, before_eq_tstt,
+                                              time_before, Z_bar)
                     LASR_res[2] += preprocessing_num_tap
                     results.loc[methods[pointer]] = LASR_res
                     res_seqs.loc[methods[pointer]] = LASR_seq
                     pointer += 1
                 if methods[pointer]=='LAFO': # Largest Average First Order
-                    LAFO_res, LAFO_seq, = LAFO(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar)
+                    LAFO_res, LAFO_seq = LAFO(net_before, after_eq_tstt, before_eq_tstt,
+                                              time_before, Z_bar)
                     LAFO_res[2] += preprocessing_num_tap
                     results.loc[methods[pointer]] = LAFO_res
                     res_seqs.loc[methods[pointer]] = LAFO_seq
                     pointer += 1
                 if methods[pointer]=='AltLASR': # Modified LASR
-                    altLASR_res, altLASR_seq, = altLASR(net_before, after_eq_tstt, before_eq_tstt,
-                        time_before, alt_Z_bar)
+                    altLASR_res, altLASR_seq, = altLASR(net_before, after_eq_tstt,
+                        before_eq_tstt, time_before, alt_Z_bar)
                     altLASR_res[2] += preprocessing_num_tap
                     memory = deepcopy(memory1)
                     results.loc[methods[pointer]] = altLASR_res
@@ -2520,11 +2566,13 @@ if __name__ == '__main__':
                 if methods[pointer]=='SQG': # Sequential greedy method
                     wb_update, bb_update = deepcopy(wb), deepcopy(bb)
                     if num_crews == 1:
-                        greedy_res, greedy_seq = greedy_heuristic(net_after, after_eq_tstt,
-                            before_eq_tstt, time_net_before, time_net_after)
+                        greedy_res, greedy_seq = greedy_heuristic(net_after,
+                            after_eq_tstt, before_eq_tstt, time_net_before,
+                            time_net_after)
                     else:
-                        greedy_res, greedy_seq = greedy_heuristic_mult(net_after, after_eq_tstt,
-                            before_eq_tstt, time_net_before, time_net_after, num_crews)
+                        greedy_res, greedy_seq = greedy_heuristic_mult(net_after,
+                            after_eq_tstt, before_eq_tstt, time_net_before,
+                            time_net_after, num_crews)
                     bfs = BestSoln()
                     bfs.cost, bfs.path = greedy_res[0], greedy_seq
                     wb, bb = deepcopy(wb_update), deepcopy(bb_update)
@@ -2533,13 +2581,14 @@ if __name__ == '__main__':
                     res_seqs.loc[methods[pointer]] = greedy_seq
                     pointer += 1
                 if methods[pointer]=='LZG': # Lazy greedy method
-                    results.loc[methods[pointer]], res_seqs.loc[methods[pointer]] = lazy_greedy_heuristic(
-                        net_after, after_eq_tstt, before_eq_tstt, first_b, bb_time)
+                    (results.loc[methods[pointer]], res_seqs.loc[methods[pointer]]
+                     ) = lazy_greedy_heuristic(net_after, after_eq_tstt, before_eq_tstt,
+                        first_b, bb_time)
                     pointer += 1
 
                 if methods[pointer]=='IF': # Importance factor
-                    importance_res, importance_seq = importance_factor_solution(net_before,
-                        after_eq_tstt, before_eq_tstt, time_net_before)
+                    importance_res, importance_seq = importance_factor_solution(
+                        net_before, after_eq_tstt, before_eq_tstt, time_net_before)
                     if importance_res[0] < bfs.cost:
                         bfs.cost = importance_res[0]
                         bfs.path = importance_seq
@@ -2547,13 +2596,15 @@ if __name__ == '__main__':
                     res_seqs.loc[methods[pointer]] = importance_seq
                     pointer += 1
                 if methods[pointer]=='SPT': # Shortest processing time
-                    results.loc[methods[pointer]], res_seqs.loc[methods[pointer]] = SPT_solution(
-                        net_before, after_eq_tstt, before_eq_tstt, time_net_before)
+                    (results.loc[methods[pointer]], res_seqs.loc[methods[pointer]]
+                     ) = SPT_solution(net_before, after_eq_tstt, before_eq_tstt,
+                        time_net_before)
                     pointer += 1
 
                 if pointer < len(methods) and methods[pointer]=='Sim Anneal':
-                    results.loc[methods[pointer]], res_seqs.loc[methods[pointer]] = sim_anneal(
-                        bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links, num_crews=num_crews)
+                    (results.loc[methods[pointer]], res_seqs.loc[methods[pointer]]
+                     ) = sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt,
+                        damaged_links, num_crews=num_crews)
                     pointer += 1
 
                 if pointer < len(methods) and methods[pointer]=='Beam Search':
@@ -2569,7 +2620,7 @@ if __name__ == '__main__':
                             after_eq_tstt, before_eq_tstt, start_node, end_node, bfs,
                             wb, bb, wb_update, bb_update, memory, beam_search=
                             beam_search, beam_k=k, beta=beta, gamma=gamma, graphing=
-                            graphing, bs_time_list=bs_time_list, bs_OBJ_list=bs_OBJ_list)
+                            graphing, bs_time_list=bs_time_list,bs_OBJ_list=bs_OBJ_list)
                     else:
                         (r_algo_path, r_algo_obj, r_search_tap_solved, tot_childr,
                             uncommon_numberr, common_numberr, num_purger, wb, bb,
@@ -2582,8 +2633,10 @@ if __name__ == '__main__':
                         bs_time_list.append(search_elapsed)
                         bs_OBJ_list.append(r_algo_obj)
                     r_algo_num_tap += r_search_tap_solved
-                    r_algo_elapsed = search_elapsed + greedy_res[1] + importance_res[1] + 2*evaluation_time
-                    results.loc[methods[pointer]] = [r_algo_obj, r_algo_elapsed, r_algo_num_tap]
+                    r_algo_elapsed = (search_elapsed + greedy_res[1] + importance_res[1]
+                                      + 2*evaluation_time)
+                    results.loc[methods[pointer]] = [r_algo_obj, r_algo_elapsed,
+                                                     r_algo_num_tap]
                     res_seqs.loc[methods[pointer]] = r_algo_path
                     pointer += 1
 
@@ -2594,17 +2647,21 @@ if __name__ == '__main__':
                     moveloc = list(results.index).index('SQG')
                 if beam_search:
                     line = results.loc['Beam Search':'Beam Search']
-                    results = pd.concat([results[:moveloc],line[:],results[moveloc:len(results)-1]])
+                    results = pd.concat([results[:moveloc],line[:],
+                                         results[moveloc:len(results)-1]])
                     line = res_seqs.loc['Beam Search':'Beam Search']
-                    res_seqs = pd.concat([res_seqs[:moveloc-2],line[:],res_seqs[moveloc-2:len(res_seqs)-1]])
+                    res_seqs = pd.concat([res_seqs[:moveloc-2],line[:],
+                                          res_seqs[moveloc-2:len(res_seqs)-1]])
                     moveloc += 1
                 if sa:
                     line = results.loc['Sim Anneal':'Sim Anneal']
-                    results = pd.concat([results[:moveloc],line[:],results[moveloc:len(results)-1]])
+                    results = pd.concat([results[:moveloc],line[:],
+                                         results[moveloc:len(results)-1]])
                     line = res_seqs.loc['Sim Anneal':'Sim Anneal']
-                    res_seqs = pd.concat([res_seqs[:moveloc-2],line[:],res_seqs[moveloc-2:len(res_seqs)-1]])
+                    res_seqs = pd.concat([res_seqs[:moveloc-2],line[:],
+                                          res_seqs[moveloc-2:len(res_seqs)-1]])
 
-                if alt_crews == None and not multiclass:
+                if alt_crews is None and not multiclass:
                     print(results)
                     print(res_seqs)
                     results.to_pickle(save_dir + '/results' + extension)
@@ -2624,8 +2681,9 @@ if __name__ == '__main__':
                     for method in methods:
                         if method=='Simple UB' or method=='HLB':
                             continue
-                        temp, __, __, __ = eval_sequence(test_net, list(res_seqs.loc[method]), after_eq_tstt,
-                            before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                        temp, __, __, __ = eval_sequence(test_net,
+                            list(res_seqs.loc[method]), after_eq_tstt, before_eq_tstt,
+                            num_crews=num_crews, multiclass=multiclass)
                         class_results.at[method,'Objective'] = temp[0]
                         for i in range(1,len(temp)):
                             class_results.at[method,'Class '+str(i)] = temp[i]
@@ -2644,16 +2702,18 @@ if __name__ == '__main__':
                     crew_res_seqs = res_seqs.copy()
                     test_net = deepcopy(net_after)
                     for i in range(len(alt_crews)):
-                        crew_results.insert(i+1,str(alt_crews[i])+' Crews',[0]*len(results))
+                        crew_results.insert(i+1,str(alt_crews[i])+' Crews',
+                                            [0]*len(results))
                     for method in methods:
                         if method=='Simple UB' or method=='HLB':
                             continue
                         elif method=='OPT BF':
-                            locopt = list(crew_results.index).index('OPT BF')+1 # df numbering starts at 1
+                            # df numbering starts at 1
+                            locopt = list(crew_results.index).index('OPT BF')+1
                             for i in range(len(alt_crews)):
                                 memory = deepcopy(memory1)
-                                temp_res, temp_seq, temp_times = brute_force(net_after, after_eq_tstt,
-                                    before_eq_tstt, num_crews=alt_crews[i])
+                                temp_res, temp_seq, temp_times = brute_force(net_after,
+                                    after_eq_tstt,before_eq_tstt,num_crews=alt_crews[i])
                                 for j in range(len(alt_crews)+1):
                                     if j < i+1:
                                         temp_res.insert(0,0)
@@ -2661,17 +2721,17 @@ if __name__ == '__main__':
                                         temp_res.insert(j,0)
                                 line = pd.DataFrame(columns=crew_results.columns)
                                 line.loc['OPT BF'+str(alt_crews[i])] = temp_res
-                                crew_results = pd.concat([crew_results[:locopt+i],line.loc[:],
-                                                         crew_results[locopt+i:]])
+                                crew_results = pd.concat([crew_results[:locopt+i],
+                                    line.loc[:], crew_results[locopt+i:]])
                                 line = pd.DataFrame(columns=res_seqs.columns)
                                 line.loc['OPT BF'+str(alt_crews[i])] = temp_seq
-                                crew_res_seqs = pd.concat([crew_res_seqs[:locopt+i],line.loc[:],
-                                                          crew_res_seqs[locopt+i:]])
+                                crew_res_seqs = pd.concat([crew_res_seqs[:locopt+i],
+                                    line.loc[:], crew_res_seqs[locopt+i:]])
                         else:
                             for crew in alt_crews:
-                                crew_results.at[method,str(crew)+' Crews'], __, __, __ = eval_sequence(
-                                    test_net, list(res_seqs.loc[method]), after_eq_tstt, before_eq_tstt,
-                                    num_crews=crew)
+                                (crew_results.at[method,str(crew)+' Crews'], __, __, __
+                                 ) = eval_sequence(test_net, list(res_seqs.loc[method]),
+                                    after_eq_tstt, before_eq_tstt, num_crews=crew)
                     print(crew_results)
                     print(res_seqs)
                     crew_results.to_pickle(save_dir + '/results' + extension)
@@ -2684,14 +2744,16 @@ if __name__ == '__main__':
                         f.write(res_seqs.to_csv(header=False))
 
         if multiclass and damaged_dict_preset != '':
-            # Read unequal class weighting soln paths, and calc obj for same paths, but equally weighted
+            # Read unequal class weighting soln paths, and calc obj for same paths,
+            # but equally weighted
             seq_ineq = pd.read_pickle(damaged_dict_preset + '/res_seqs' + extension)
             compare = class_results.drop(['Run Time','# TAP'],axis=1)
             compare = compare.merge(compare, left_index=True, right_index=True,
                                suffixes=(' (EqualPri)', ' (UneqPri)'))
             compare.insert(len(compare.columns),'% Overall Change',[0]*len(compare))
             for i in range(1,num_classes+1):
-                compare.insert(len(compare.columns),'% Change Class '+str(i),[0]*len(compare))
+                compare.insert(len(compare.columns),'% Change Class '+str(i),
+                               [0]*len(compare))
 
             for method in methods:
                 if method=='Simple UB' or method=='HLB':
@@ -2699,11 +2761,13 @@ if __name__ == '__main__':
                 if method=='FF LB':
                     test_net = deepcopy(net_after)
                     test_net.free_flow = True
-                    temp, __, __, __ = eval_sequence(test_net, list(seq_ineq.loc[method]),
-                        after_eq_tstt, before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                    temp, __, __, __ = eval_sequence(test_net,
+                        list(seq_ineq.loc[method]), after_eq_tstt, before_eq_tstt,
+                        num_crews=num_crews, multiclass=multiclass)
                 else:
-                    temp, __, __, __ = eval_sequence(net_after, list(seq_ineq.loc[method]),
-                        after_eq_tstt, before_eq_tstt, num_crews=num_crews, multiclass=multiclass)
+                    temp, __, __, __ = eval_sequence(net_after,
+                        list(seq_ineq.loc[method]), after_eq_tstt, before_eq_tstt,
+                        num_crews=num_crews, multiclass=multiclass)
                 compare.at[method,'Objective'+' (UneqPri)'] = temp[0]
                 compare.at[method,'% Overall Change'] = percentChange(
                     compare.at[method,'Objective'+' (EqualPri)'], temp[0])
@@ -2718,8 +2782,8 @@ if __name__ == '__main__':
                 f.write(compare.to_csv(header=False))
 
             if graphing:
-                get_sequence_graphs(NETWORK_DIR, str(num_broken), alt_dir=ULT_SCENARIO_REP_DIR,
-                    multiclass=True, mc_weights=mc_weights)
+                get_sequence_graphs(NETWORK_DIR, str(num_broken), alt_dir=
+                    ULT_SCENARIO_REP_DIR, multiclass=True, mc_weights=mc_weights)
 
         elif graphing:
             get_sequence_graphs(NETWORK_DIR, str(num_broken), mc_weights=mc_weights)
@@ -2727,6 +2791,6 @@ if __name__ == '__main__':
         if graphing:
             plot_time_OBJ(save_dir,bs_time_list,bs_OBJ_list,sa_time_list,sa_OBJ_list)
 
-        #print('hlower_bound was invalid {} times out of {}'.format(num_lb_fail, reps))
-        #print(lb_gap)
-        #print(lb_percent)
+        print('hlower_bound was invalid {} times out of {}'.format(num_lb_fail, reps))
+        print(lb_gap)
+        print(lb_percent)
