@@ -11,6 +11,8 @@ import numpy as np
 from collections import defaultdict
 import heapq as heap
 import time
+from math import log2
+from sequence_utils import int_to_state
 
 FRANK_WOLFE_STEPSIZE_PRECISION = 1e-4
 
@@ -70,6 +72,52 @@ class Network:
 
         if len(networkFile) > 0 and len(demandFile) > 0:
             self.readFromFiles(networkFile, demandFile)
+
+    def init_sp_net(self, damaged_dict, vecTSTT, before_eq_tstt):
+        N = len(damaged_dict)
+        durations = list(damaged_dict.values())
+        self.numNodes = len(vecTSTT)
+        self.numLinks = N*2**(N-1)
+        self.firstThroughNode = 0
+        self.node = dict()
+        self.link = dict()
+
+        for i in range(1,len(vecTSTT)+1):
+            state = int_to_state(i-1,N)
+            for k in range(N):
+                if not state[k]:
+                    j = i + 2**(N-1-k)
+                    linkid = '('+str(i)+','+str(j)+')'
+                    self.link[linkid] = Link(self, i, j,
+                            freeFlowTime=(vecTSTT[i-1]-before_eq_tstt)*durations[k], alpha=0, beta=1)
+                    self.link[linkid].cost = (vecTSTT[i-1]-before_eq_tstt)*durations[k]
+            self.node[i] = Node()
+
+        self.node[1].isZone = True
+        self.node[len(vecTSTT)].isZone = True
+
+        for i in self.node:
+            self.node[i].forwardStar = list()
+            self.node[i].reverseStar = list()
+
+        for ij in self.link:
+            self.node[self.link[ij].tail].forwardStar.append(ij)
+            self.node[self.link[ij].head].reverseStar.append(ij)
+
+    def build_sp_seq(self, backlink, cost, damaged_dict):
+        damaged_links = list(damaged_dict.keys())
+        N = len(damaged_links)
+        seq = []
+        j = 2**N
+        i = self.link[backlink[j]].tail
+        bound = cost[j]
+        seq.append(damaged_links[N-1-int(log2(j-i))])
+        while i != 1:
+            j = i
+            i = self.link[backlink[j]].tail
+            seq.insert(0,damaged_links[N-1-int(log2(j-i))])
+        
+        return bound, seq
 
     def relativeGap(self):
         """
@@ -209,6 +257,26 @@ class Network:
         for ij in self.link:
             beckmann += self.link[ij].calculateBeckmannComponent()
         return beckmann
+    
+    def altAcyclic(self, origin, high_val):
+        """use-case specific for optimal sequencing induced network"""
+        backlink = dict()
+        cost = dict()
+
+        for i in self.node:
+            backlink[i] = utils.NO_PATH_EXISTS
+            cost[i] = high_val
+        cost[origin] = 0
+
+        for i in range(2,self.numNodes+1):
+            for hi in self.node[i].reverseStar:
+                h = self.link[hi].tail
+                tempCost = cost[h] + self.link[hi].cost
+                if tempCost < cost[i]:
+                    cost[i] = tempCost
+                    backlink[i] = hi
+
+        return (backlink, cost)
 
     def acyclicShortestPath(self, origin):
         """

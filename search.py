@@ -1,5 +1,6 @@
 # file contains beam search 'search' function and subfunctions
 from sequence_utils import *
+import math
 
 class sNode():
     """A node class for bi-directional search for pathfinding"""
@@ -151,6 +152,7 @@ def expand_sequence_f(node, a_link, level, net_after, wb, bb, wb_update, bb_upda
         mc_weights=net_after.mc_weights, demand_mult=net_after.demand_mult)
     net.not_fixed = set(node.not_fixed).difference(set([a_link]))
     net.art_links = net_after.art_links
+    net.maxruntime = net_after.maxruntime
     if frozenset(net.not_fixed) in memory.keys():
         tstt_after = memory[frozenset(net.not_fixed)]
     else:
@@ -187,6 +189,7 @@ def expand_sequence_b(node, a_link, level, net_after, wb, bb, wb_update, bb_upda
         mc_weights=net_after.mc_weights, demand_mult=net_after.demand_mult)
     net.not_fixed = node.not_fixed.union(set([a_link]))
     net.art_links = net_after.art_links
+    net.maxruntime = net_after.maxruntime
 
     if frozenset(net.not_fixed) in memory.keys():
         tstt_before = memory[frozenset(net.not_fixed)]
@@ -987,6 +990,7 @@ def search(
                 test_net = create_network(net_after.netfile, net_after.tripfile,
                     mc_weights=net_after.mc_weights, demand_mult=net_after.demand_mult)
                 test_net.art_links = art_link_dict
+                test_net.maxruntime = net_after.maxruntime
                 path = minimum_ff_n.path.copy()
                 new_bb = {}
 
@@ -1049,6 +1053,7 @@ def search(
                 test_net = create_network(net_after.netfile, net_after.tripfile,
                     mc_weights=net_after.mc_weights, demand_mult=net_after.demand_mult)
                 test_net.art_links = art_link_dict
+                test_net.maxruntime = net_after.maxruntime
 
                 decoy_dd = deepcopy(damaged_dict)
                 for visited_links in minimum_bf_n.visited:

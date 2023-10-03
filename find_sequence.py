@@ -55,6 +55,8 @@ on first number, and postprocessing is performed to find OBJ for other
 crew numbers """
 parser.add_argument('--bf', nargs='+', type=int, help='1: brute force (opt), 2: brute \
                     force using ML values', default=0)
+parser.add_argument('--sp', nargs='+', type=int, help='1: shortest path (opt), 2: \
+                    sp using ML values, 3: sp using free flow times', default=0)
 parser.add_argument('--ff', type=bool, help='calc lower bound using free flow times',
                     default=False)
 parser.add_argument('--mip', nargs='+', type=int, help=('1: opt w/ precalced TSTTs, \
@@ -245,6 +247,7 @@ def state_after(damaged_links, save_dir, relax=False, real=False, bsearch=False,
         net_after.art_links = art_link_dict
         net_after.damaged_dict = damaged_dict
         net_after.save_dir = save_dir
+        net_after.maxruntime=str(10)
 
         after_eq_tstt, __, __ = solve_UE(net=net_after, eval_seq=True, warm_start=False,
                 initial=True)
@@ -303,6 +306,7 @@ def state_before(
         net_before.art_links = art_link_dict
         net_before.damaged_dict = damaged_dict
         net_before.save_dir = save_dir
+        net_before.maxruntime=str(10)
 
         if isinstance(mc_weights, list):
             test_net = deepcopy(net_before)
@@ -842,11 +846,14 @@ def sim_anneal(bfs, net_after, after_eq_tstt, before_eq_tstt, damaged_links,
                         current = deepcopy(nextord)
                         curcost = deepcopy(nextcost)
                     else:
-                        prob = math.exp(negdelta/curcost*(t**(2/3)))
-                        if random.random() <= prob:
-                            current = deepcopy(nextord)
-                            curcost = deepcopy(nextcost)
-                        else:
+                        try:
+                            prob = math.exp(negdelta/curcost*(t**(2/3)))
+                            if random.random() <= prob:
+                                current = deepcopy(nextord)
+                                curcost = deepcopy(nextcost)
+                            else:
+                                fail += 1
+                        except:
                             fail += 1
 
                     if curcost < best_cost:
@@ -1144,7 +1151,7 @@ def SPT_solution(net_before, after_eq_tstt, before_eq_tstt, time_net_before):
         sorted_d = sorted(damaged_dict.items(), key=lambda x: x[1])
         path, __ = zip(*sorted_d)
 
-        elapsed = time.time() - start + time_net_before
+        elapsed = time.time() - start
         bound, eval_taps, __, __ = eval_sequence(
             SPT_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
@@ -1283,6 +1290,53 @@ def brute_force(net_after, after_eq_tstt, before_eq_tstt, is_approx=False, num_c
     return [bound, elapsed, tap_solved], min_seq, times
 
 
+def opt_sp(sp, net_after, after_eq_tstt, before_eq_tstt, time_before, vecTSTT):
+    """uses TSTT values for every state (calc or est) to find the lowest overall tstt
+    impacts by finding shortest path from immediate post disruption state to fully
+    repaired state in an induced network. Single-crew only"""
+    tap_solved=0
+
+    if sp==1:
+        fname = net_after.save_dir + '/sp_OPT'
+    elif sp==2:
+        fname = net_after.save_dir + '/sp_ML'
+    elif sp==3:
+        fname = net_after.save_dir + '/sp_FF'
+    
+    if not os.path.exists(fname + extension):
+        start = time.time()
+        sp_net = Network() # init empty network using Network.py
+        sp_net.init_sp_net(net_after.damaged_dict, vecTSTT, before_eq_tstt)
+        backlink, cost = sp_net.altAcyclic(1, after_eq_tstt
+                                           * sum(net_after.damaged_dict.values()))
+        bound, min_seq = sp_net.build_sp_seq(backlink, cost, net_after.damaged_dict)
+
+        sp_time = time.time() - start
+        times = [sp_time, 0, time_before]
+        elapsed = sp_time + time_before
+
+        bound, __, __, __ = eval_sequence(net_after, min_seq, after_eq_tstt,
+                                          before_eq_tstt)
+        if sp==2:
+            print('ML shortest path objective: {}, path: {}'.format(bound, min_seq))
+        else:
+            print('Optimal shortest path objective: {}, optimal path: {}'.format(bound,
+                                                                                 min_seq))
+        print('Run time break down: upper algo, prep for taps, run taps: ', times)
+
+        save(fname + '_obj', bound)
+        save(fname + '_path', min_seq)
+        save(fname + '_elapsed', elapsed)
+        save(fname + '_num_tap', tap_solved)
+    else:
+        bound = load(fname + '_obj')
+        min_seq = load(fname + '_path')
+        tap_solved = load(fname + '_num_tap')
+        elapsed = load(fname + '_elapsed')
+
+    return [bound, elapsed, tap_solved], min_seq, times
+
+
 def mip_bf(mip, net_before, after_eq_tstt, before_eq_tstt, time_before, vecTSTT):
     """uses TSTT values for every state (calc or est) to build single level IP
     and solve using gurobi; vecTSTT is a vector of length 2^N with TSTTs
@@ -1344,7 +1398,7 @@ def mip_bf(mip, net_before, after_eq_tstt, before_eq_tstt, time_before, vecTSTT)
         save(fname + '_obj', bound)
         save(fname + '_path', path)
         save(fname + '_elapsed', elapsed)
-        save(fname + '_num_tap', 0)
+        save(fname + '_num_tap', tap_solved)
     else:
         bound = load(fname + '_obj')
         path = load(fname + '_path')
@@ -1631,6 +1685,7 @@ def make_art_links(NETFILE, TRIPFILE, mc_weights, demand_mult):
     art_net.art_links = {}
     art_net.mc_weights = mc_weights
     art_net.demand_mult = demand_mult
+    art_net.maxruntime=str(10)
 
     tstt, __, __ = solve_UE(net=art_net, eval_seq=True, flows=True, warm_start=False)
 
@@ -1867,6 +1922,8 @@ if __name__ == '__main__':
     try: bf = list(args.bf)
     except: bf = [args.bf]
     opt = bf[0]
+    try: sp = list(args.sp)
+    except: sp = [args.sp]
     try: mip = list(args.mip)
     except: mip = [args.mip]
     sa = args.sa
@@ -1891,6 +1948,9 @@ if __name__ == '__main__':
     if calc_ff: methods.append('FF LB')
     temp = {1:'OPT BF', 2:'ML BF'}
     for el in bf:
+        if el != 0: methods.append(temp[el])
+    temp = {1:'OPT SP', 2:'ML SP'}
+    for el in sp:
         if el != 0: methods.append(temp[el])
     temp = {1:'OPT IP', 2:'ML IP', 3:'DeltaTSTT'}
     for el in mip:
@@ -1987,6 +2047,7 @@ if __name__ == '__main__':
                                      demand_mult=demand_mult)
                 net.not_fixed = set([])
                 net.art_links = {}
+                net.maxruntime=str(10)
                 solve_UE(net=net, warm_start=False, eval_seq=True)
 
                 f = "flows.txt"
@@ -2405,6 +2466,9 @@ if __name__ == '__main__':
                 first_b, bb_time = first_benefit(net_after,damaged_links,after_eq_tstt)
                 last_b = last_benefit(net_before, damaged_links, before_eq_tstt)
                 wb, bb, swapped_links = safety(last_b, first_b)
+                net_before.maxruntime = str(min(math.ceil(bb_time), 2*time_net_after
+                                                * len(damaged_dict)))
+                net_after.maxruntime = net_before.maxruntime
                 if damaged_dict_preset=='':
                     plot_nodes_links(save_dir, netg, damaged_links, coord_dict,
                                      names=True)
@@ -2447,8 +2511,8 @@ if __name__ == '__main__':
                 print('Time to evaluate a sequence: ', evaluation_time)
 
 
-                #['Simple UB','HLB','FF LB','OPT BF','ML BF','OPT IP','ML IP',
-                # 'DeltaTSTT','LASR','LAFO','AltLASR','SQG','LZG','IF','SPT',
+                #['Simple UB','HLB','FF LB','OPT BF','ML BF','OPT SP','ML SP','OPT IP',
+                # 'ML IP','DeltaTSTT','LASR','LAFO','AltLASR','SQG','LZG','IF','SPT',
                 # 'Sim Anneal','Beam Search']
 
                 results = pd.DataFrame(columns=['Objective','Run Time','# TAP'])
@@ -2460,11 +2524,14 @@ if __name__ == '__main__':
                     results.loc[methods[1]] = HLB_res
                     pointer += 2
                 if methods[pointer]=='FF LB':
-                    FF_mem = {}
                     record_ff_net(net_after)
-                    (results.loc[methods[pointer]], res_seqs.loc[methods[pointer]],
-                        ff_times) = brute_force(net_after, after_eq_tstt,
-                        before_eq_tstt, num_crews=num_crews, calc_ff=calc_ff)
+                    test_net = deepcopy(net_after)
+                    test_net.free_flow = True
+                    vec_FF, FF_TSTTs_time, TSTT_num_tap = calc_all_TSTT(test_net)
+                    ff_sp_res, res_seqs.loc[methods[pointer]], ff_sp_times = opt_sp(3,
+                        test_net, after_eq_tstt, before_eq_tstt, FF_TSTTs_time, vec_FF)
+                    ff_sp_res[2] += TSTT_num_tap
+                    results.loc[methods[pointer]] = ff_sp_res
                     pointer += 1
 
                 memory1 = deepcopy(memory) # takes a snapshot of memory
@@ -2495,16 +2562,19 @@ if __name__ == '__main__':
                     res_seqs.loc[methods[pointer]] = opt_seq
                     pointer += 1
 
-                if methods[pointer]=='OPT IP': # IP formulation using calculated TSTTs
+                if methods[pointer]=='OPT SP': # SP formulation using calculated TSTTs
                     vecTSTT, TSTTs_time, TSTT_num_tap = calc_all_TSTT(net_after)
-                    mip1_res, mip1_seq = mip_bf(1, net_before, after_eq_tstt,
-                        before_eq_tstt, TSTTs_time, vecTSTT)
-                    mip1_res[2] += TSTT_num_tap
-                    results.loc[methods[pointer]] = mip1_res
-                    res_seqs.loc[methods[pointer]] = mip1_seq
+                    opt_sp_res, res_seqs.loc[methods[pointer]], opt_sp_times = opt_sp(1,
+                            net_after, after_eq_tstt, before_eq_tstt, TSTTs_time, vecTSTT)
+                    opt_sp_res[2] += TSTT_num_tap
+                    if opt_sp_res[0] < hlower_bound:
+                        num_lb_fail += 1
+                    lb_gap.append(opt_sp_res[0] - hlower_bound)
+                    lb_percent.append((opt_sp_res[0] - hlower_bound)/opt_sp_res[0])
+                    results.loc[methods[pointer]] = opt_sp_res
                     pointer += 1
-                if methods[pointer]=='ML IP': # IP formulation using ML TSTT values
-                    if 'ML_BF' not in methods:
+                if methods[pointer]=='ML SP': # SP formulation using ML TSTT values
+                    if 'ML BF' not in methods:
                         ML_start = time.time()
                         model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
                             damaged_links, net_after)
@@ -2513,14 +2583,40 @@ if __name__ == '__main__':
                         print('Time to train ML model: '+str(ML_time))
                     vec_ML, ML_TSTTs_time = calc_all_ML(approx_params, damaged_links,
                                                         memory)
-                    mip2_res, mip2_seq = mip_bf(2, net_before, after_eq_tstt,
-                                                before_eq_tstt, ML_TSTTs_time, vec_ML)
                     print('Time to find all ML TSTTs after training: '
                           + str(ML_TSTTs_time - ML_time))
+                    ml_sp_res, res_seqs.loc[methods[pointer]], ml_sp_times = opt_sp(1,
+                        net_after, after_eq_tstt, before_eq_tstt, ML_TSTTs_time, vec_ML)
+                    ml_sp_res[2] += ML_num_tap
+                    memory = deepcopy(memory1)
+                    results.loc[methods[pointer]] = ml_sp_res
+                    pointer += 1
+
+                if methods[pointer]=='OPT IP': # IP formulation using calculated TSTTs
+                    if 'OPT BF' not in methods and 'OPT SP' not in methods:
+                        vecTSTT, TSTTs_time, TSTT_num_tap = calc_all_TSTT(net_after)
+                    mip1_res, res_seqs.loc[methods[pointer]] = mip_bf(1, net_before,
+                        after_eq_tstt, before_eq_tstt, TSTTs_time, vecTSTT)
+                    mip1_res[2] += TSTT_num_tap
+                    results.loc[methods[pointer]] = mip1_res
+                    pointer += 1
+                if methods[pointer]=='ML IP': # IP formulation using ML TSTT values
+                    if 'ML BF' not in methods and 'ML SP' not in methods:
+                        ML_start = time.time()
+                        model, meany, stdy, Z_bar, ML_num_tap = ML_preprocess(
+                            damaged_links, net_after)
+                        approx_params = (model, meany, stdy)
+                        ML_time = time.time() - ML_start + 2*bb_time
+                        print('Time to train ML model: '+str(ML_time))
+                    vec_ML, ML_TSTTs_time = calc_all_ML(approx_params, damaged_links,
+                                                        memory)
+                    print('Time to find all ML TSTTs after training: '
+                          + str(ML_TSTTs_time - ML_time))
+                    mip2_res, res_seqs.loc[methods[pointer]] = mip_bf(2, net_before,
+                        after_eq_tstt, before_eq_tstt, ML_TSTTs_time, vec_ML)
                     mip2_res[2] += ML_num_tap
                     memory = deepcopy(memory1)
                     results.loc[methods[pointer]] = mip2_res
-                    res_seqs.loc[methods[pointer]] = mip2_seq
                     pointer += 1
                 if methods[pointer]=='DeltaTSTT':
                     # alternate IP formulation using estimated deltaTSTT[t,b]
@@ -2528,12 +2624,11 @@ if __name__ == '__main__':
                     deltaTSTT, pre_num_tap = find_deltaTSTT(damaged_links, net_after,
                         after_eq_tstt, before_eq_tstt, last_b, first_b)
                     time_mip_before = time.time() - preprocess_st + 2*bb_time
-                    mip3_res, mip3_seq = mip_delta(net_before, after_eq_tstt,
-                        before_eq_tstt, time_mip_before, deltaTSTT)
+                    mip3_res, res_seqs.loc[methods[pointer]] = mip_delta(net_before,
+                        after_eq_tstt, before_eq_tstt, time_mip_before, deltaTSTT)
                     mip3_res[2] += pre_num_tap
                     memory = deepcopy(memory1)
                     results.loc[methods[pointer]] = mip3_res
-                    res_seqs.loc[methods[pointer]] = mip3_seq
                     pointer += 1
 
                 if methods[pointer]=='LASR': # Largest Average Smith Ratio
@@ -2794,3 +2889,4 @@ if __name__ == '__main__':
         print('hlower_bound was invalid {} times out of {}'.format(num_lb_fail, reps))
         print(lb_gap)
         print(lb_percent)
+        save(save_dir + '/hlowerinvalid', [num_lb_fail,reps])

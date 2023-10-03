@@ -97,7 +97,7 @@ def orderlists(benefits, days, slack=0, rem_keys=None, reverse=True):
     return benefits, days
 
 
-def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=False):
+def write_tui(net, relax, eval_seq, warm_start, initial=False):
     """write tui file to be read by tap-b"""
     if eval_seq:
         prec = '1e-7'
@@ -123,7 +123,7 @@ def write_tui(net, relax, eval_seq, warm_start, rev, networkFileName, initial=Fa
         f2.write(prec)
         f2.write('\n')
         f2.write('<MAX RUN TIME> ')
-        f2.write(str(60))
+        f2.write(net.maxruntime)
         f2.write('\n')
         if isinstance(net.tripfile, list):
             f2.write('<NUMBER OF THREADS> 1')
@@ -388,7 +388,7 @@ def solve_UE(
     folder_loc = "tap-b/bin/tap "
 
     start = time.time()
-    write_tui(net, relax, eval_seq, False, rev, networkFileName, initial=initial)
+    write_tui(net, relax, eval_seq, False, initial=initial)
     args = shlex.split(folder_loc + "current_params.txt")
     popen = subprocess.run(args, stdout=subprocess.DEVNULL)
     elapsed = time.time() - start
@@ -416,7 +416,7 @@ def solve_UE(
                 shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
                 shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
 
-            write_tui(net, relax, eval_seq, True, rev, networkFileName, initial=initial)
+            write_tui(net, relax, eval_seq, True, initial=initial)
             args = shlex.split(folder_loc + "current_params.txt")
             popen = subprocess.run(args, stdout=subprocess.DEVNULL)
             shutil.copy('full_log.txt', 'full_log_error2.txt')
@@ -444,31 +444,59 @@ def solve_UE(
         try:
             tstt = net_update(net, args, flows)
         except:
-            print('error in executing net_update from solve_ue, retrying')
-            shutil.copy('full_log.txt', 'full_log_error.txt')
-            shutil.copy('current_net.tntp', 'current_net_error.tntp')
-            shutil.copy('current_params.txt', 'current_params_error.txt')
+            try:
+                print('error in executing net_update from solve_ue, retrying')
+                shutil.copy('full_log.txt', 'full_log_error.txt')
+                shutil.copy('current_net.tntp', 'current_net_error.tntp')
+                shutil.copy('current_params.txt', 'current_params_error.txt')
 
-            temp = 1
-            if isinstance(net.tripfile, list):
-                temp = len(net.tripfile)
+                temp = 1
+                if isinstance(net.tripfile, list):
+                    temp = len(net.tripfile)
 
-            if rev:
-                bush_loc = 'after-batch'
-                mat_loc = 'after-matrix'
-            else:
-                bush_loc = 'before-batch'
-                mat_loc = 'before-matrix'
-            for i in range(temp):
-                shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
-                shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
+                if rev:
+                    bush_loc = 'after-batch'
+                    mat_loc = 'after-matrix'
+                else:
+                    bush_loc = 'before-batch'
+                    mat_loc = 'before-matrix'
+                for i in range(temp):
+                    shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
+                    shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
 
-            write_tui(net, relax, eval_seq, True, rev, networkFileName, initial=initial)
-            args = shlex.split(folder_loc + "current_params.txt")
+                write_tui(net, relax, eval_seq, True, initial=initial)
+                args = shlex.split(folder_loc + "current_params.txt")
 
-            popen = subprocess.run(args, stdout=subprocess.DEVNULL)
-            shutil.copy('full_log.txt', 'full_log_error2.txt')
-            tstt = net_update(net, args, flows)
+                popen = subprocess.run(args, stdout=subprocess.DEVNULL)
+                shutil.copy('full_log.txt', 'full_log_error2.txt')
+                tstt = net_update(net, args, flows)
+            except:
+                print('second error in executing net_update from solve_ue, retrying')
+                shutil.copy('full_log.txt', 'full_log_error2.txt')
+                shutil.copy('current_net.tntp', 'current_net_error2.tntp')
+                shutil.copy('current_params.txt', 'current_params_error2.txt')
+
+                temp = 1
+                if isinstance(net.tripfile, list):
+                    temp = len(net.tripfile)
+
+                if rev:
+                    bush_loc = 'before-batch'
+                    mat_loc = 'before-matrix'
+                else:
+                    bush_loc = 'after-batch'
+                    mat_loc = 'after-matrix'
+                for i in range(temp):
+                    shutil.copy(bush_loc+str(i)+'.bin', 'batch'+str(i)+'.bin')
+                    shutil.copy(mat_loc+str(i)+'.bin', 'matrix'+str(i)+'.bin')
+
+                write_tui(net, relax, eval_seq, True, initial=initial)
+                args = shlex.split(folder_loc + "current_params.txt")
+
+                popen = subprocess.run(args, stdout=subprocess.DEVNULL)
+                shutil.copy('full_log.txt', 'full_log_error3.txt')
+                tstt = net_update(net, args, flows)
+                
     prep_time = time.time() - prep_st - elapsed
     tap_time = elapsed
     return tstt, prep_time, tap_time
