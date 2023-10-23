@@ -1,9 +1,14 @@
+In accordance with section 105 of the US Copyright Act, this work has been
+produced by a US government employee and shall be considered a public domain
+work, as copyright protection is not available, with the exception of portions
+forked from https://github.com/cangokalp/optimal_recovery_sequencing in June
+2022, copyright notice below. See GitHub commit history for differentiation.
+Submodules remain licensed under their individual licenses.
+
+
 MIT License
 
-Copyright (c) for portions of this project are held by Can Gokalp, 2022,
-repository at https://github.com/cangokalp/optimal_recovery_sequencing.
-All other copyright (c) is held by Abigail Crocker, 2022. See GitHub commit
-history for differentiation.
+Copyright (c) 2022 Can Gokalp
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

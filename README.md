@@ -45,10 +45,13 @@ python3 find_sequence.py -n SiouxFalls -b 5 -r 1
 ## Authors
 
 * **Can Gokalp** - *Original implementation* 
-* **Abigail Crocker** - *Updated implementation for improved beam search, simulated annealing, additional estimation and MIP methods, multi-class demand, and multiple work crews*
+* **Abigail Crocker** - *Updated implementation with improved exact optimal sequence implementation, improved beam search, simulated annealing, additional estimation and MIP methods, multi-class demand, and multiple work crews*
 
 ## License
 
-This project is licensed under the MIT license - see the [LICENSE.md](LICENSE.md) file for details.
+Portions of this project are licensed under the MIT license - see the [LICENSE.md](LICENSE.md) file for details.
 
 ## Acknowledgements
+
+This research was supported by the U.S. Army Advanced Civil Schooling program. The views expressed herein are those of the authors and do not necessarily reflect the position of the Department of the Army or the Department of Defense.
+
