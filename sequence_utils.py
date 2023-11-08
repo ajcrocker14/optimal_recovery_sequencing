@@ -1,6 +1,8 @@
 import pickle
 import os
 from copy import deepcopy
+import operator as op
+from functools import reduce
 import shlex
 import subprocess
 import shutil
@@ -502,6 +504,74 @@ def solve_UE(
     return tstt, prep_time, tap_time
 
 
+def gen_crew_seqs(order_list, damaged_dict, num_crews):
+    """takes in the order in which projects start, the damaged dict, and the number of
+    crews, and returns the order in which projects are completed within crews and the
+    makespan"""
+    if num_crews == 1:
+        crew_seqs = order_list
+        makespan = sum(damaged_dict.values())
+    elif not isinstance(order_list[0],str):
+        crews = [0]*num_crews
+        for crew in range(num_crews):
+            for link in order_list[crew]:
+                crews[crew] += damaged_dict[link]
+        makespan = max(crews)
+        crew_seqs = order_list
+    else:
+        crew_seqs = [[] for i in range(num_crews)]
+        crew_order_list = []
+        crews = [0]*num_crews
+        which_crew = dict()
+
+        temp = damaged_dict[order_list[0]]
+        crew_order_list.append(order_list[0])
+        for ij in order_list[1:num_crews]:
+            if damaged_dict[ij] < temp:
+                temp = damaged_dict[ij]
+                crew_order_list[0] = ij
+
+        crews[0]+=damaged_dict[crew_order_list[0]]
+        which_crew[crew_order_list[0]] = 0
+        crew_seqs[0].append(crew_order_list[0])
+
+        for link in order_list:
+            if link not in crew_order_list:
+                which_crew[link] = crews.index(min(crews))
+                crews[which_crew[link]] += damaged_dict[link]
+                crew_seqs[which_crew[link]].append(link)
+                if crews[which_crew[link]] == max(crews):
+                    crew_order_list.append(link)
+                else:
+                    crew_order_list.insert(len(crew_order_list) - num_crews +
+                        sorted(crews).index(crews[which_crew[link]]) + 1 ,link)
+        makespan = max(crews)
+
+    return crew_seqs, makespan
+
+
+def gen_single_seq(crew_seqs, damaged_dict, num_crews):
+    if isinstance(crew_seqs[0],str):
+        return crew_seqs
+    else:
+        order_list = []
+        crews = [0]*num_crews
+        pointer = [0]*num_crews
+
+        for i in range(num_crews):
+            order_list.append(crew_seqs[i][0])
+            crews[i] += damaged_dict[crew_seqs[i][0]]
+            pointer[i] += 1
+
+        while len(order_list) < len(damaged_dict):
+            i = np.argmin(crews)
+            link = crew_seqs[i][pointer[i]]
+            order_list.append(link)
+            crews[i] += damaged_dict[link]
+            pointer[i] += 1
+        return order_list
+
+
 def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
     """takes in the order in which projects start, the damaged dict, and the
     number of crews, and returns the order in which projects finish, which crew
@@ -548,6 +618,67 @@ def gen_crew_order(order_list, damaged_dict=None, num_crews=1):
     return crew_order_list, which_crew, days_list
 
 
+def gen_decomp_crew_order(order_list, damaged_dict=None, num_crews=1):
+    """takes in the order in which projects start by crew, the damaged dict, and the
+    number of crews, and returns the order in which projects finish, which crew
+    completes each project in that ordered list, and the days list"""
+    if num_crews == 1:
+        crew_order_list = order_list
+        which_crew = None
+    else:
+        crew_order_list = []
+        crews = [0]*num_crews
+        which_crew = dict()
+        pointer = [0]*num_crews
+
+        for i in range(num_crews):
+            for link in order_list[i]:
+                which_crew[link] = i
+            link = order_list[i][0]
+            crews[i] += damaged_dict[link]
+            if crews[i] == max(crews):
+                crew_order_list.append(link)
+            else:
+                crew_order_list.insert(len(crew_order_list) - num_crews +
+                        sorted(crews).index(crews[i]) + 1 ,link)
+            pointer[i] += 1
+
+        for j in range(len(damaged_dict)-num_crews):
+            i = crews.index(min(crews))
+            try:
+                link = order_list[i][pointer[i]]
+                pointer[i] += 1
+                crews[i] += damaged_dict[link]
+            except:
+                for val in sorted(crews, reverse=True):
+                    try:
+                        k = crews.index(val)
+                        link = order_list[k][pointer[k]]
+                        pointer[k] += 1
+                        crews[i] += damaged_dict[link]
+                        which_crew[link] = i
+                    except:
+                        pass
+            if crews[i] == max(crews):
+                crew_order_list.append(link)
+            else:
+                crew_order_list.insert(len(crew_order_list) - num_crews +
+                    sorted(crews).index(crews[i]) + 1 ,link)
+
+    days_list = []
+    crews = [0]*num_crews
+    total_days = 0
+    for link_id in crew_order_list:
+        if num_crews == 1:
+            days_list.append(damaged_dict[link_id])
+        else:
+            crews[which_crew[link_id]] += damaged_dict[link_id]
+            days_list.append(crews[which_crew[link_id]] - total_days)
+            total_days = max(crews)
+
+    return crew_order_list, which_crew, days_list
+
+
 def eval_sequence(
         net, order_list, after_eq_tstt, before_eq_tstt, if_list=None, importance=False,
         is_approx=False, num_crews=1, approx_params=None, multiclass=False):
@@ -569,12 +700,19 @@ def eval_sequence(
         fp.append(firstfp * 100)
         curfp = firstfp
 
-    to_visit = order_list
+    if isinstance(order_list[0], str):
+        to_visit = order_list
+    else:
+        to_visit = list(reduce(op.concat, order_list))
     added = []
 
     # Crew order list is the order in which projects complete
-    crew_order_list, which_crew, days_list = gen_crew_order(
-        order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
+    if isinstance(order_list[0], str):
+        crew_order_list, which_crew, days_list = gen_crew_order(
+            order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
+    else:
+        crew_order_list, which_crew, days_list = gen_decomp_crew_order(
+            order_list, damaged_dict=net.damaged_dict, num_crews=num_crews)
 
     if multiclass and isinstance(net.tripfile, list):
         net.not_fixed = set(to_visit)
