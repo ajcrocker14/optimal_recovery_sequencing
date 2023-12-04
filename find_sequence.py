@@ -812,7 +812,7 @@ def sim_anneal(method, sanum, bfs, net_after, after_eq_tstt, before_eq_tstt,
             global sa_time_list
             global sa_OBJ_list
             sa_time_list[method].append(0)
-            sa_OBJ_list[method].append(deepcopy(bfs.cost))
+            sa_OBJ_list[method].append(deepcopy(best_cost))
 
         global memory
         t = 0
@@ -1039,7 +1039,7 @@ def sim_anneal(method, sanum, bfs, net_after, after_eq_tstt, before_eq_tstt,
                     else:
                         best_soln = deepcopy(current)
                         best_cost = deepcopy(curcost)
-                        if graphing:
+                        if graphing and sanum==0:
                             sa_time_list[method].append(time.time()-start)
                             sa_OBJ_list[method].append(deepcopy(best_cost))
                         lastMvmt = t
@@ -1054,11 +1054,12 @@ def sim_anneal(method, sanum, bfs, net_after, after_eq_tstt, before_eq_tstt,
             if isinstance(current[0],str):
                 current, __ = gen_crew_seqs(current, damaged_dict, num_crews)
             maxiters = int(1.5 * (sum([len(i) for i in current])-num_crews+1)**3)
+            frequency = math.ceil(num_broken/num_crews)
             cross = False
             while t < maxiters:
                 t += 1
                 if (str(method)[1]=='0' and t % 2) or (str(method)[1]=='1'
-                                                       and t % num_crews):
+                                                       and t % frequency):
                     cross = True
 
                 idx = random.randrange(0,num_broken - num_crews)
@@ -1124,7 +1125,7 @@ def sim_anneal(method, sanum, bfs, net_after, after_eq_tstt, before_eq_tstt,
                     else:
                         best_soln = deepcopy(current)
                         best_cost = deepcopy(curcost)
-                        if graphing:
+                        if graphing and sanum==0:
                             sa_time_list[method].append(time.time()-start)
                             sa_OBJ_list[method].append(deepcopy(best_cost))
                         lastMvmt = t
@@ -1439,7 +1440,7 @@ def arc_flow(net_before, after_eq_tstt, before_eq_tstt, time_before, Z_bar, firs
         path = [link[2] for link in temp]
 
         elapsed = time.time() - start + time_before
-        bound, eval_taps, __ = eval_sequence(
+        bound, eval_taps, __, __ = eval_sequence(
             arc_net, path, after_eq_tstt, before_eq_tstt, num_crews=num_crews)
 
         save(fname + '_obj', bound)
@@ -2650,21 +2651,25 @@ def plot_time_OBJ(save_dir, start, end, bs_time_list=None, bs_OBJ_list=None, sa_
     if sa_time_list is not None:
         sa_indices = dict()
         labels = dict()
-        for el in sacompare:
-            labels[el] = str(el)
-
-        if sacompare == [100,200,300]:
-            labels[100], labels[200] = '1-Neighborhood', '2-Neighborhood'
-            labels[300] = '3-Neighborhood'
-            lines = {100:'solid',200:'dashed',300:'dotted'}
-        elif sacompare == [100,101,102]:
-            labels[100], labels[101], labels[102] = 'Default','Fail-Min','Fail-Random'
-            lines = {100:'solid',101:'dashed',102:'dotted'}
+        if not sacompare:
+            labels[100] = 'Simulated Annealing'
+            lines = {100: 'solid'}
         else:
-            lineset = [(0,(3,3,1,3,1,3)),'dashdot', 'dotted', 'dashed', 'solid']
-            lines = dict()
             for el in sacompare:
-                lines[el] = lineset.pop()
+                labels[el] = str(el)
+
+            if sacompare == [100,200,300]:
+                labels[100], labels[200] = '1-Neighborhood', '2-Neighborhood'
+                labels[300] = '3-Neighborhood'
+                lines = {100:'solid',200:'dashed',300:'dotted'}
+            elif sacompare == [100,101,102]:
+                labels[100], labels[101], labels[102] = 'Default','Fail-Min','Fail-Random'
+                lines = {100:'solid',101:'dashed',102:'dotted'}
+            else:
+                lineset = [(0,(3,3,1,3,1,3)),'dashdot', 'dotted', 'dashed', 'solid']
+                lines = dict()
+                for el in sacompare:
+                    lines[el] = lineset.pop()
 
         for i in sa_time_list:
             sa_indices[i] = [j for j, time in enumerate(sa_time_list[i]) if time == 0]
@@ -2773,7 +2778,7 @@ if __name__ == '__main__':
 
     # Compile list of methods
     methods = []
-    if num_crews == 1:
+    if num_crews == 1 and alt_crews is None:
         methods.extend(['Simple UB', 'HLB'])
     if calc_ff: methods.append('FF LB')
     temp = {1:'OPT BF', 2:'ML BF'}
@@ -3209,10 +3214,10 @@ if __name__ == '__main__':
                 else:
                     num_scenario = [int(i) for i in repetitions]
                     max_rep = max(num_scenario)
-                cur_scnario_num = max_rep + 1
+                cur_scenario_num = max_rep + 1
 
                 ULT_SCENARIO_REP_DIR = os.path.join(
-                    ULT_SCENARIO_DIR, str(cur_scnario_num))
+                    ULT_SCENARIO_DIR, str(cur_scenario_num))
 
                 os.makedirs(ULT_SCENARIO_REP_DIR, exist_ok=True)
 
@@ -3353,7 +3358,7 @@ if __name__ == '__main__':
                     res_seqs = pd.DataFrame(columns=range(1,num_crews+1))
 
                 pointer = 0
-                if num_crews==1:
+                if num_crews==1 and alt_crews is None:
                     results.loc[methods[0]] = UB_res
                     results.loc[methods[1]] = HLB_res
                     pointer += 2
@@ -3419,7 +3424,7 @@ if __name__ == '__main__':
                                                         memory)
                     print('Time to find all ML TSTTs after training: '
                           + str(ML_TSTTs_time - ML_time))
-                    ml_sp_res, res_seqs.loc[methods[pointer]], ml_sp_times = opt_sp(1,
+                    ml_sp_res, res_seqs.loc[methods[pointer]], ml_sp_times = opt_sp(2,
                         net_after, after_eq_tstt, before_eq_tstt, ML_TSTTs_time, vec_ML)
                     ml_sp_res[2] += ML_num_tap
                     memory = deepcopy(memory1)
@@ -3427,7 +3432,7 @@ if __name__ == '__main__':
                     pointer += 1
 
                 if methods[pointer]=='OPT IP': # IP formulation using calculated TSTTs
-                    if 'OPT BF' not in methods and 'OPT SP' not in methods:
+                    if 'OPT SP' not in methods:
                         vecTSTT, TSTTs_time, TSTT_num_tap = calc_all_TSTT(net_after)
                     mip1_res, res_seqs.loc[methods[pointer]] = mip_bf(1, net_before,
                         after_eq_tstt, before_eq_tstt, TSTTs_time, vecTSTT)
@@ -3442,8 +3447,9 @@ if __name__ == '__main__':
                         approx_params = (model, meany, stdy)
                         ML_time = time.time() - ML_start + 2*bb_time
                         print('Time to train ML model: '+str(ML_time))
-                    vec_ML, ML_TSTTs_time = calc_all_ML(approx_params, damaged_links,
-                                                        memory)
+                    if 'ML SP' not in methods:
+                        vec_ML, ML_TSTTs_time = calc_all_ML(approx_params,
+                            damaged_links, memory)
                     print('Time to find all ML TSTTs after training: '
                           + str(ML_TSTTs_time - ML_time))
                     mip2_res, res_seqs.loc[methods[pointer]] = mip_bf(2, net_before,
@@ -3653,7 +3659,7 @@ if __name__ == '__main__':
                     results = pd.concat([results[:moveloc],line[:],
                                          results[moveloc:len(results)-1]])
                     line = res_seqs.loc['Beam Search':'Beam Search']
-                    if num_crews==1:
+                    if num_crews==1 and alt_crews is None:
                         res_seqs = pd.concat([res_seqs[:moveloc-2],line[:],
                                              res_seqs[moveloc-2:len(res_seqs)-1]])
                     else:
@@ -3665,7 +3671,7 @@ if __name__ == '__main__':
                     results = pd.concat([results[:moveloc],line[:],
                                          results[moveloc:len(results)-1]])
                     line = res_seqs.loc['Sim Anneal':'Sim Anneal']
-                    if num_crews==1:
+                    if num_crews==1 and alt_crews is None:
                         res_seqs = pd.concat([res_seqs[:moveloc-2],line[:],
                                           res_seqs[moveloc-2:len(res_seqs)-1]])
                     else:
@@ -3688,7 +3694,7 @@ if __name__ == '__main__':
                     test_net = deepcopy(net_after)
                     num_classes = len(net_after.tripfile)
                     for i in range(1,num_classes+1):
-                        class_results.insert(i,'Class '+str(i),[0]*len(results))
+                        class_results.insert(i,'Class '+str(i),np.nan)
                     for method in methods:
                         if method=='Simple UB' or method=='HLB':
                             continue
@@ -3713,34 +3719,51 @@ if __name__ == '__main__':
                     crew_res_seqs = res_seqs.copy()
                     test_net = deepcopy(net_after)
                     for i in range(len(alt_crews)):
-                        crew_results.insert(i+1,str(alt_crews[i])+' Crews',
-                                            [0]*len(results))
+                        crew_results.insert(i+1,'PP'+str(alt_crews[i]),np.nan)
+                    crew_results.insert(1,'PP'+str(num_crews),np.nan)
+                    for i in range(len(alt_crews)):
+                        crew_results.insert(i+1,'C'+str(alt_crews[i]),np.nan)
+                    crew_results.insert(len(crew_results.columns),'Make Span',
+                                        np.nan)
                     for method in methods:
                         if method=='Simple UB' or method=='HLB':
                             continue
-                        elif method=='OPT BF':
+                        elif method.find('OPT') >= 0:
                             # df numbering starts at 1
-                            locopt = list(crew_results.index).index('OPT BF')+1
+                            locopt = list(crew_results.index).index(method)+1
                             for i in range(len(alt_crews)):
                                 memory = deepcopy(memory1)
-                                temp_res, temp_seq, temp_times = brute_force(net_after,
-                                    after_eq_tstt,before_eq_tstt,num_crews=alt_crews[i])
+                                match method:
+                                    case 'OPT BF':
+                                        temp_res, temp_seq, temp_times = brute_force(
+                                            net_after, after_eq_tstt, before_eq_tstt,
+                                            num_crews=alt_crews[i])
+                                    case 'OPT SP':
+                                        temp_res, temp_seq, temp_times = opt_sp(1,
+                                            net_after, after_eq_tstt, before_eq_tstt,
+                                            TSTTs_time, vec_TSTT)
+                                    case 'OPT IP':
+                                        temp_res, temp_seq, temp_times = mip_bf(1,
+                                            net_after, after_eq_tstt, before_eq_tstt,
+                                            TSTTs_time, vec_TSTT)
                                 for j in range(len(alt_crews)+1):
                                     if j < i+1:
-                                        temp_res.insert(0,0)
+                                        temp_res.insert(0,np.nan)
                                     if j > i+1:
-                                        temp_res.insert(j,0)
+                                        temp_res.insert(j,np.nan)
+                                for j in range(len(alt_crews)+1):
+                                    temp_res.insert(len(alt_crews)+1,np.nan)
                                 line = pd.DataFrame(columns=crew_results.columns)
-                                line.loc['OPT BF'+str(alt_crews[i])] = temp_res
+                                line.loc[method+str(alt_crews[i])] = temp_res
                                 crew_results = pd.concat([crew_results[:locopt+i],
                                     line.loc[:], crew_results[locopt+i:]])
-                                line = pd.DataFrame(columns=res_seqs.columns)
-                                line.loc['OPT BF'+str(alt_crews[i])] = temp_seq
-                                crew_res_seqs = pd.concat([crew_res_seqs[:locopt+i],
-                                    line.loc[:], crew_res_seqs[locopt+i:]])
+                                #line = pd.DataFrame(columns=res_seqs.columns)
+                                #line.loc[method+str(alt_crews[i])] = temp_seq
+                                #crew_res_seqs = pd.concat([crew_res_seqs[:locopt+i],
+                                #    line.loc[:], crew_res_seqs[locopt+i:]])
                         else:
                             for crew in alt_crews:
-                                (crew_results.at[method,str(crew)+' Crews'], __, __, __
+                                (crew_results.at[method,'PP'+str(crew)], __, __, __
                                  ) = eval_sequence(test_net, list(res_seqs.loc[method]),
                                     after_eq_tstt, before_eq_tstt, num_crews=crew)
                     print(crew_results)
