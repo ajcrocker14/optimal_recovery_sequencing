@@ -52,8 +52,8 @@ parser.add_argument('-d', '--num_crews', nargs='+', type=int, help='number of wo
 and postprocessing is performed to find OBJ for other crew numbers """
 parser.add_argument('--mdecomp', nargs='+', type=int, default=0,
                     help='find multicrew sequences using decomp, min makespan (LPT)')
-parser.add_argument('--cdecomp', nargs='+', type=int, default=0,
-                    help='find multicrew sequences using decomp, ccassign')
+parser.add_argument('--idecomp', nargs='+', type=int, default=0,
+                    help='find multicrew sequences using decomp, icassign')
 """ within-crew methods: 1=global optimal, 2=local optimal, 3=greedy, 4=IF, 5=SPT """
 parser.add_argument('--bf', nargs='+', type=int, help='1: brute force (opt), 2: brute \
                     force using ML values', default=0)
@@ -2036,8 +2036,8 @@ def find_decomp(decomp_method, decomp_list, net_before, net_after, after_eq_tstt
     if not os.path.exists(fname + extension):
         if decomp_method == 'minmake':
             which_crew, taps, make_span = minspan(net_after, num_crews)
-        else: # 'ccassign'
-            which_crew, taps, make_span = ccassign(net_before, num_crews)
+        else: # 'icassign'
+            which_crew, taps, make_span = icassign(net_before, num_crews)
         init_time = time.time() - start
         print('Time to find '+decomp_method+' crew assignments: '+str(init_time))
 
@@ -2084,8 +2084,8 @@ def minspan(net_after, num_crews):
     return which_crew, 0, sum(days_list)
 
 
-def ccassign(net_before, num_crews):
-    """finds a correlation coefficient-based assignment to crews"""
+def icassign(net_before, num_crews):
+    """finds an interaction coefficient-based assignment to crews"""
     taps = 0
     test_net = deepcopy(net_before)
     initflow = dict()
@@ -2736,11 +2736,11 @@ if __name__ == '__main__':
         else: mdecomp = args.mdecomp
     else:
         mdecomp = list(args.mdecomp)
-    if isinstance(args.cdecomp, int):
-        if args.cdecomp: cdecomp = [args.cdecomp]
-        else: cdecomp = args.cdecomp
+    if isinstance(args.idecomp, int):
+        if args.idecomp: idecomp = [args.idecomp]
+        else: idecomp = args.idecomp
     else:
-        cdecomp = list(args.cdecomp)
+        idecomp = list(args.idecomp)
     tables = args.tables
     graphing = args.graphing
     before_after = args.onlybeforeafter
@@ -2795,9 +2795,9 @@ if __name__ == '__main__':
     if mdecomp:
         for el in mdecomp:
             methods.append('Minspan '+temp[el])
-    if cdecomp:
-        for el in cdecomp:
-            methods.append('CC Assign '+temp[el])
+    if idecomp:
+        for el in idecomp:
+            methods.append('IC Assign '+temp[el])
     if approx:
         methods.append('LASR')
         methods.append('LAFO')
@@ -2830,6 +2830,10 @@ if __name__ == '__main__':
         net_name = 'berlin-mitte-center2'
     if net_name == 'Berlin-Mitte-Center3':
         net_name = 'berlin-mitte-center3'
+    if net_name == 'Berlin-Center':
+        net_name = 'berlin-center'
+    if net_name == 'Berlin-Mitte-Prenzlauerberg-Friedrichshain-Center':
+        net_name = 'berlin-mitte-prenzlauerberg-friedrichshain-center'
     NETFILE = os.path.join(NETWORK, net_name + "_net.tntp")
 
     TRIPFILE = os.path.join(NETWORK, net_name + "_trips.tntp")
@@ -3004,7 +3008,7 @@ if __name__ == '__main__':
                         coord_dict[row['features']['properties']['id']] = row[
                             'features']['geometry']['coordinates']
 
-                if NETWORK.find('Berlin-Mitte-Center') >= 0:
+                if NETWORK.find('Berlin') >= 0:
                     nodetntp = pd.read_csv(os.path.join(NETWORK, net_name+"_node.tntp"),
                         delim_whitespace = True, skipinitialspace=True)
                     coord_dict = {}
@@ -3346,7 +3350,7 @@ if __name__ == '__main__':
 
 
                 #['Simple UB','HLB','FF LB','OPT BF','ML BF','OPT SP','ML SP','OPT IP',
-                # 'ML IP','DeltaTSTT','Arc Flow','Minspan','CC Assign','LASR','LAFO',
+                # 'ML IP','DeltaTSTT','Arc Flow','Minspan','IC Assign','LASR','LAFO',
                 # 'AltLASR','SQG','LZG','IF','SPT','Sim Anneal','Beam Search']
 
                 if num_crews == 1:
@@ -3492,13 +3496,13 @@ if __name__ == '__main__':
                         res_seqs.loc[methods[pointer]] = minspan_seq[i]
                         pointer += 1
                     memory = deepcopy(memory1)
-                if methods[pointer].find('CC Assign') >= 0:
-                    cc_res, cc_seq = find_decomp('ccassign', cdecomp, net_before,
+                if methods[pointer].find('IC Assign') >= 0:
+                    ic_res, ic_seq = find_decomp('icassign', idecomp, net_before,
                         net_after, after_eq_tstt, before_eq_tstt, time_net_before,
                         num_crews)
-                    for i in range(len(cdecomp)):
-                        results.loc[methods[pointer]] = cc_res[i]
-                        res_seqs.loc[methods[pointer]] = cc_seq[i]
+                    for i in range(len(idecomp)):
+                        results.loc[methods[pointer]] = ic_res[i]
+                        res_seqs.loc[methods[pointer]] = ic_seq[i]
                         pointer += 1
                     memory = deepcopy(memory1)
 
@@ -3646,10 +3650,10 @@ if __name__ == '__main__':
                     temp = {1:'(global opt)', 2:'(local opt)', 3:'(greedy)', 4:'(IF)',
                             5:'(SPT)'}
                     moveloc = list(results.index).index('Minspan '+temp[mdecomp[0]])
-                elif cdecomp:
+                elif idecomp:
                     temp = {1:'(global opt)', 2:'(local opt)', 3:'(greedy)', 4:'(IF)',
                             5:'(SPT)'}
-                    moveloc = list(results.index).index('Minmake '+temp[cdecomp[0]])
+                    moveloc = list(results.index).index('Minmake '+temp[idecomp[0]])
                 elif approx:
                     moveloc = list(results.index).index('LASR')
                 else:
